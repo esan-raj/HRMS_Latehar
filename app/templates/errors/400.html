@@ -1,0 +1,9 @@
+{% extends "simple.html" %}
+{% block title %}Bad request · HR Records{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1 class="page-title">The form could not be submitted</h1>
+    <p>Refresh the page and try again.</p>
+    <a href="{{ url_for('auth.login') }}">Return to sign in</a>
+  </div>
+{% endblock %}

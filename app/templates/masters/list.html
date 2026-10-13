@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}{{ spec.title }} · HR Records{% endblock %}
+{% block content %}
+  <h1 class="page-title">{{ spec.title }}</h1>
+  <p class="muted">Inactive records remain visible on existing employee history and are hidden from new selections.</p>
+  <div class="card">
+    {% if rows %}
+      <div class="table-wrap">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              {% if spec.facility %}
+                <th scope="col">Code</th>
+                <th scope="col">Name</th>
+                <th scope="col">Type</th>
+                <th scope="col">District</th>
+                <th scope="col">Block</th>
+              {% else %}
+                <th scope="col">Name</th>
+              {% endif %}
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                {% if spec.facility %}
+                  <td>{{ row.code }}</td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.facility_type }}</td>
+                  <td>{{ row.district }}</td>
+                  <td>{{ row.block or "—" }}</td>
+                {% else %}
+                  <td>{{ row.name }}</td>
+                {% endif %}
+                <td>{% if row.is_active %}<span class="badge text-bg-success">Active</span>{% else %}<span class="badge text-bg-secondary">Inactive</span>{% endif %}</td>
+                <td class="actions">
+                  <a href="{{ url_for('masters.edit', slug=spec.slug, record_id=row.id) }}">Edit</a>
+                  {% if row.is_active %}
+                    <a href="{{ url_for('masters.deactivate', slug=spec.slug, record_id=row.id) }}">Deactivate</a>
+                  {% else %}
+                    <a href="{{ url_for('masters.activate', slug=spec.slug, record_id=row.id) }}">Activate</a>
+                  {% endif %}
+                  <a href="{{ url_for('masters.delete', slug=spec.slug, record_id=row.id) }}">Delete</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="mb-0">No {{ spec.title|lower }} yet.</p>
+    {% endif %}
+  </div>
+  <form class="card" method="post" style="max-width: 40rem;">
+    <h2 class="h5">Add {{ spec.singular }}</h2>
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+{% endblock %}

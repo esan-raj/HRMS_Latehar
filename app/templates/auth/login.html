@@ -1,0 +1,21 @@
+{% extends "simple.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Sign in · HR Records{% endblock %}
+{% block content %}
+  <div class="card auth-card">
+    <h1 class="page-title">Sign in</h1>
+    <p class="muted">Administrator access only.</p>
+    <form method="post" action="{{ url_for('auth.login') }}">
+      {{ form.hidden_tag() }}
+      {{ render_field(form.email) }}
+      <div class="mb-3">
+        {{ form.password.label(class="form-label") }}
+        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), value="") }}
+        {% for error in form.password.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block body %}
+  {% set slug = request.view_args.get('slug') if request.view_args else '' %}
+  <input id="nav-toggle" class="nav-toggle" type="checkbox">
+  <label class="menu-button" for="nav-toggle">Menu</label>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="{{ url_for('dashboard.index') }}">HR Records</a>
+      <nav aria-label="Primary">
+        <a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="{{ url_for('employees.index') }}" {% if request.endpoint and request.endpoint.startswith('employees.') %}aria-current="page"{% endif %}>Employees</a>
+        <div class="group">Master data</div>
+        {% for item, label in [
+          ('departments', 'Departments'),
+          ('designations', 'Designations'),
+          ('facilities', 'Facilities'),
+          ('employment-types', 'Employment types'),
+          ('qualifications', 'Qualifications'),
+          ('training-types', 'Training types'),
+          ('leave-types', 'Leave types')
+        ] %}
+          <a href="{{ url_for('masters.index', slug=item) }}" {% if slug == item %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <form class="logout-form" method="post" action="{{ url_for('auth.logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Log out</button>
+      </form>
+    </aside>
+    <main id="content" class="content">
+      {% include "flashes.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+{% endblock %}

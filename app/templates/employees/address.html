@@ -1,0 +1,29 @@
+{% extends "employees/profile_base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Address · {{ employee.full_name }}{% endblock %}
+{% block section %}
+  <form class="card" method="post" style="max-width: 46rem;">
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    <div class="row">
+      <fieldset class="col-md-6">
+        <legend class="h5">Present address</legend>
+        {{ render_field(form.present_line1) }}
+        {{ render_field(form.present_line2) }}
+        {{ render_field(form.present_district) }}
+        {{ render_field(form.present_state) }}
+        {{ render_field(form.present_pin) }}
+      </fieldset>
+      <fieldset class="col-md-6">
+        <legend class="h5">Permanent address</legend>
+        <button class="btn btn-outline-secondary btn-sm mb-3" type="button" data-copy-address>Copy present address</button>
+        {{ render_field(form.permanent_line1) }}
+        {{ render_field(form.permanent_line2) }}
+        {{ render_field(form.permanent_district) }}
+        {{ render_field(form.permanent_state) }}
+        {{ render_field(form.permanent_pin) }}
+      </fieldset>
+    </div>
+    <button class="btn btn-primary" type="submit">Save address</button>
+  </form>
+{% endblock %}

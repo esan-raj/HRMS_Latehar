@@ -1,0 +1,44 @@
+{% extends "employees/profile_base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}{{ spec.title }} · {{ employee.full_name }}{% endblock %}
+{% block section %}
+  <div class="card">
+    {% if rows %}
+      <div class="table-wrap">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              {% for header, getter in spec.columns %}<th scope="col">{{ header }}</th>{% endfor %}
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                {% for header, getter in spec.columns %}<td>{{ getter(row) }}</td>{% endfor %}
+                <td class="actions">
+                  <a href="{{ url_for('employees.' ~ spec.key ~ '_edit', employee_id=employee.id, record_id=row.id) }}">Edit</a>
+                  <a href="{{ url_for('employees.' ~ spec.key ~ '_delete', employee_id=employee.id, record_id=row.id) }}">Delete</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="mb-0">{{ spec.empty }}</p>
+    {% endif %}
+  </div>
+  <form class="card" method="post" action="{% if editing %}{{ url_for('employees.' ~ spec.key ~ '_edit', employee_id=employee.id, record_id=editing.id) }}{% else %}{{ url_for('employees.' ~ spec.key ~ '_list', employee_id=employee.id) }}{% endif %}" style="max-width: 42rem;">
+    <h2 class="h5">{% if editing %}Edit record{% else %}Add record{% endif %}</h2>
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save</button>
+    {% if editing %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.' ~ spec.key ~ '_list', employee_id=employee.id) }}">Cancel</a>
+    {% endif %}
+  </form>
+{% endblock %}

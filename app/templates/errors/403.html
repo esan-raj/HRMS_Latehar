@@ -1,0 +1,9 @@
+{% extends "simple.html" %}
+{% block title %}Access denied · HR Records{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1 class="page-title">You do not have access</h1>
+    <p>This application is limited to the configured administrator.</p>
+    <a href="{{ url_for('auth.login') }}">Sign in</a>
+  </div>
+{% endblock %}

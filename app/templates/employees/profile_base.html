@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+  <p class="mb-2"><a href="{{ url_for('employees.index') }}">Employees</a></p>
+  <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
+    <div>
+      <h1 class="page-title">{{ employee.full_name }}</h1>
+      <p class="mb-2">
+        <span class="me-2">{{ employee.employee_code }}</span>
+        {% if employee.is_active %}
+          <span class="badge text-bg-success">Active</span>
+        {% else %}
+          <span class="badge text-bg-secondary">Inactive</span>
+        {% endif %}
+      </p>
+      <p class="muted">
+        {% if current_posting %}
+          Current posting: {{ current_posting.designation.name }} at {{ current_posting.facility.name }} since {{ current_posting.start_date|show_date }}
+        {% else %}
+          No current posting.
+        {% endif %}
+      </p>
+    </div>
+    <div class="actions">
+      {% if employee.is_active %}
+        <a class="btn btn-outline-danger btn-sm" href="{{ url_for('employees.deactivate', employee_id=employee.id) }}">Deactivate</a>
+      {% else %}
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('employees.reactivate', employee_id=employee.id) }}">Reactivate</a>
+      {% endif %}
+    </div>
+  </div>
+  <nav class="section-nav" aria-label="Employee sections">
+    {% for key, label, endpoint in sections %}
+      <a href="{{ url_for(endpoint, employee_id=employee.id) }}" {% if section == key %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% block section %}{% endblock %}
+{% endblock %}

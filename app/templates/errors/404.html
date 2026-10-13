@@ -1,0 +1,8 @@
+{% extends "simple.html" %}
+{% block title %}Not found · HR Records{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1 class="page-title">Page not found</h1>
+    <p><a href="{{ url_for('dashboard.index') }}">Go to the dashboard</a></p>
+  </div>
+{% endblock %}

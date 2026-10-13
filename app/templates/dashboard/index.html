@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · HR Records{% endblock %}
+{% block content %}
+  <h1 class="page-title">Dashboard</h1>
+  <p class="muted">Counts come from database aggregates.</p>
+  <div class="stat-grid mb-3">
+    <section class="card"><p class="muted mb-1">Total employees</p><p class="stat">{{ counts.total }}</p></section>
+    <section class="card"><p class="muted mb-1">Active</p><p class="stat">{{ counts.active }}</p></section>
+    <section class="card"><p class="muted mb-1">Inactive</p><p class="stat">{{ counts.inactive }}</p></section>
+    <section class="card"><p class="muted mb-1">Active without a current posting</p><p class="stat">{{ counts.unassigned }}</p></section>
+  </div>
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Active employees by designation</h2>
+        {% if counts.by_designation %}
+          <div class="table-wrap">
+            <table class="table table-sm mb-0">
+              <thead><tr><th scope="col">Designation</th><th scope="col">Employees</th></tr></thead>
+              <tbody>
+                {% for name, count in counts.by_designation %}
+                  <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="mb-0">No active employees have a current posting.</p>
+        {% endif %}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Active employees by facility</h2>
+        {% if counts.by_facility %}
+          <div class="table-wrap">
+            <table class="table table-sm mb-0">
+              <thead><tr><th scope="col">Facility</th><th scope="col">Employees</th></tr></thead>
+              <tbody>
+                {% for name, count in counts.by_facility %}
+                  <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="mb-0">No active employees have a current posting.</p>
+        {% endif %}
+      </section>
+    </div>
+  </div>
+{% endblock %}

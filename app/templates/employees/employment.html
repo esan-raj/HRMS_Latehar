@@ -1,0 +1,13 @@
+{% extends "employees/profile_base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Employment details · {{ employee.full_name }}{% endblock %}
+{% block section %}
+  <form class="card" method="post" style="max-width: 40rem;">
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save employment details</button>
+  </form>
+{% endblock %}

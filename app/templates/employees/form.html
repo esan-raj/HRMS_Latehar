@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Add employee · HR Records{% endblock %}
+{% block content %}
+  <h1 class="page-title">Add employee</h1>
+  <p class="muted">Save personal details first. The other sections are on the employee profile.</p>
+  <form class="card" method="post" action="{{ url_for('employees.create') }}" style="max-width: 40rem;">
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save employee</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('employees.index') }}">Cancel</a>
+  </form>
+{% endblock %}

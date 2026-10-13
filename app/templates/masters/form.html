@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Edit {{ spec.singular }} · HR Records{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('masters.index', slug=spec.slug) }}">{{ spec.title }}</a></p>
+  <h1 class="page-title">Edit {{ spec.singular }}</h1>
+  <form class="card" method="post" style="max-width: 40rem;">
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save changes</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('masters.index', slug=spec.slug) }}">Cancel</a>
+  </form>
+{% endblock %}

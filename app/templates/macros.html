@@ -1,0 +1,25 @@
+{% macro render_field(field) %}
+  {% if field.widget.input_type == "hidden" %}
+    {{ field() }}
+  {% else %}
+    <div class="mb-3">
+      {% if field.widget.input_type == "checkbox" %}
+        <div class="form-check">
+          {{ field(class="form-check-input" + (" is-invalid" if field.errors else "")) }}
+          {{ field.label(class="form-check-label") }}
+        </div>
+      {% else %}
+        {{ field.label(class="form-label") }}
+        {% set css = "form-select" if field.widget.input_type == "select" else "form-control" %}
+        {{ field(class=css + (" is-invalid" if field.errors else "")) }}
+      {% endif %}
+      {% for error in field.errors %}
+        <div class="invalid-feedback d-block">{{ error }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro csrf_field() %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% endmacro %}

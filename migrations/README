@@ -1,0 +1,7 @@
+The HR tables are created by revision 0001_initial in the private `hrms` schema.
+
+Run migrations with the Flask command from the project root, using the direct database connection:
+
+    flask --app wsgi:application db upgrade
+
+See the project README for roles, pooling, and API lockdown.

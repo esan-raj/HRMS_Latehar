@@ -1,0 +1,53 @@
+{% extends "employees/profile_base.html" %}
+{% from "macros.html" import render_field %}
+{% block title %}Postings · {{ employee.full_name }}{% endblock %}
+{% block section %}
+  <div class="card">
+    <p>An employee can have one open posting. Dates are inclusive, and a new posting must start after the previous one ends.</p>
+    {% if rows %}
+      <div class="table-wrap">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th scope="col">Facility</th>
+              <th scope="col">Designation</th>
+              <th scope="col">Start</th>
+              <th scope="col">End</th>
+              <th scope="col">Order</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.facility.name }}</td>
+                <td>{{ row.designation.name }}</td>
+                <td>{{ row.start_date|show_date }}</td>
+                <td>{{ row.end_date|show_date }}</td>
+                <td>{{ row.order_reference }}</td>
+                <td class="actions">
+                  <a href="{{ url_for('employees.postings_edit', employee_id=employee.id, record_id=row.id) }}">Edit</a>
+                  <a href="{{ url_for('employees.postings_delete', employee_id=employee.id, record_id=row.id) }}">Delete</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="mb-0">No postings yet. Leave the end date empty to make a posting current.</p>
+    {% endif %}
+  </div>
+  <form class="card" method="post" action="{% if editing %}{{ url_for('employees.postings_edit', employee_id=employee.id, record_id=editing.id) }}{% else %}{{ url_for('employees.postings', employee_id=employee.id) }}{% endif %}" style="max-width: 42rem;">
+    <h2 class="h5">{% if editing %}Edit posting{% else %}Add posting{% endif %}</h2>
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save posting</button>
+    {% if editing %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.postings', employee_id=employee.id) }}">Cancel</a>
+    {% endif %}
+  </form>
+{% endblock %}

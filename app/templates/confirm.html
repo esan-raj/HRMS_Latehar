@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · HR Records{% endblock %}
+{% block content %}
+  <div class="card" style="max-width: 36rem;">
+    <h1 class="page-title">{{ title }}</h1>
+    <p>{{ message }}</p>
+    <form method="post" action="{{ action }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="version" value="{{ version }}">
+      <button class="btn btn-danger" type="submit">{{ confirm_label }}</button>
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

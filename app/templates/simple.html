@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block body %}
+  <main id="content" class="content">
+    {% include "flashes.html" %}
+    {% block content %}{% endblock %}
+  </main>
+{% endblock %}
