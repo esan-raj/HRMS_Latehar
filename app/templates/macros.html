@@ -9,9 +9,10 @@
           {{ field.label(class="form-check-label") }}
         </div>
       {% else %}
-        {{ field.label(class="form-label") }}
+        {{ field.label(class="form-label") }}{% if field.flags.required %} <span class="text-danger" aria-hidden="true">*</span>{% endif %}
+        {% if field.description %}<div class="form-text" id="{{ field.id }}-help">{{ field.description }}</div>{% endif %}
         {% set css = "form-select" if field.widget.input_type == "select" else "form-control" %}
-        {{ field(class=css + (" is-invalid" if field.errors else "")) }}
+        {{ field(class=css + (" is-invalid" if field.errors else ""), **({"aria-describedby": field.id ~ "-help"} if field.description else {})) }}
       {% endif %}
       {% for error in field.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>

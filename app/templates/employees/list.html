@@ -47,8 +47,25 @@
         <button class="btn btn-primary me-2" type="submit">Apply</button>
         <a class="btn btn-outline-secondary" href="{{ url_for('employees.index') }}">Clear</a>
       </div>
+      <div class="col-md-4">
+      <label class="form-label" for="filter_field">Custom field</label>
+      <select class="form-select" id="filter_field" name="filter_field">
+        <option value="">No custom filter</option>
+        {% for field in filterable_fields %}
+          <option value="{{ field.id }}" {% if field.id|string == filter_field %}selected{% endif %}>{{ field.label }}</option>
+        {% endfor %}
+      </select>
     </div>
-    <p class="muted mb-0 mt-2">Designation and facility filters use the current posting.</p>
+    <div class="col-md-4">
+      <label class="form-label" for="filter_value">Custom field value</label>
+      <input class="form-control" id="filter_value" name="filter_value" value="{{ filter_value }}" maxlength="100">
+    </div>
+    </div>
+    {% if incomplete %}<input type="hidden" name="incomplete" value="1">{% endif %}
+    <p class="muted mb-0 mt-2">Designation and the facility filter use the current posting. The Facility column is the employee's own facility. Mobile numbers are text.</p>
+    {% if incomplete_count %}
+      <p class="mb-0 mt-2"><a href="{{ url_for('employees.index', incomplete=1) }}">{{ incomplete_count }} employees are missing a required value</a></p>
+    {% endif %}
   </form>
   <div class="card">
     {% if page.total == 0 %}
@@ -58,30 +75,32 @@
         <table class="table table-sm align-middle">
           <thead>
             <tr>
-              <th scope="col" {% if sort == 'code' %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
-                <a href="{{ url_for('employees.index', sort='code', dir='desc' if sort == 'code' and direction == 'asc' else 'asc', **filters) }}">Code</a>
-              </th>
-              <th scope="col" {% if sort == 'name' %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
-                <a href="{{ url_for('employees.index', sort='name', dir='desc' if sort == 'name' and direction == 'asc' else 'asc', **filters) }}">Name</a>
-              </th>
-              <th scope="col">Designation</th>
-              <th scope="col">Facility</th>
-              <th scope="col">Employment type</th>
-              <th scope="col" {% if sort == 'status' %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
-                <a href="{{ url_for('employees.index', sort='status', dir='desc' if sort == 'status' and direction == 'asc' else 'asc', **filters) }}">Status</a>
-              </th>
+              {% for column in columns %}
+                <th scope="col" {% if sort == column.key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
+                  {% if column.sortable %}
+                    <a href="{{ url_for('employees.index', sort=column.key, dir='desc' if sort == column.key and direction == 'asc' else 'asc', **filters) }}">{{ column.label }}</a>
+                  {% else %}
+                    {{ column.label }}
+                  {% endif %}
+                </th>
+              {% endfor %}
               <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
             {% for row in page.items %}
               <tr>
-                <td>{{ row.employee.employee_code }}</td>
-                <td>{{ row.employee.full_name }}</td>
-                <td>{{ row.designation or "—" }}</td>
-                <td>{{ row.facility or "—" }}</td>
-                <td>{{ row.employment_type or "—" }}</td>
-                <td>{% if row.employee.is_active %}<span class="badge text-bg-success">Active</span>{% else %}<span class="badge text-bg-secondary">Inactive</span>{% endif %}</td>
+                {% for column in columns %}
+                  <td>
+                    {% if column.key == 'code' %}
+                      {{ row.employee.employee_code }}
+                    {% elif column.key == 'status' %}
+                      {% if row.employee.is_active %}<span class="badge text-bg-success">Active</span>{% else %}<span class="badge text-bg-secondary">Inactive</span>{% endif %}
+                    {% else %}
+                      {{ row.cells[loop.index0 - 1] }}
+                    {% endif %}
+                  </td>
+                {% endfor %}
                 <td class="actions">
                   <a href="{{ url_for('employees.personal', employee_id=row.employee.id) }}">View</a>
                   <a href="{{ url_for('employees.personal', employee_id=row.employee.id) }}">Edit</a>

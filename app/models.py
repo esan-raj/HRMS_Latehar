@@ -14,6 +14,7 @@ from sqlalchemy import (
     Uuid,
     func,
     text,
+    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -89,8 +90,18 @@ class Employee(UUIDPrimaryKey, TimestampMixin, VersionMixin, db.Model):
     gender: Mapped[str] = mapped_column(String(16), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(20))
     email: Mapped[str | None] = mapped_column(String(254))
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("facilities.id", ondelete="RESTRICT"), index=True
+    )
+    custom_data: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=sa_true(), index=True)
 
+    facility: Mapped["Facility | None"] = relationship()
     addresses: Mapped[list["Address"]] = relationship(back_populates="employee")
     employment_detail: Mapped["EmploymentDetail | None"] = relationship(back_populates="employee", uselist=False)
 
@@ -258,6 +269,54 @@ class DacpDetail(UUIDPrimaryKey, TimestampMixin, VersionMixin, db.Model):
     effective_date: Mapped[datetime] = mapped_column(Date, nullable=False)
     order_reference: Mapped[str] = mapped_column(String(120), nullable=False)
     remarks: Mapped[str | None] = mapped_column(Text)
+
+
+class FieldCatalog(db.Model):
+    __tablename__ = "field_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class EmployeeField(UUIDPrimaryKey, TimestampMixin, VersionMixin, db.Model):
+    __tablename__ = "employee_fields"
+    __table_args__ = (
+        CheckConstraint(
+            "field_type IN ('short_text', 'long_text', 'integer', 'decimal', 'date', 'dropdown', 'yes_no', 'facility')",
+            name="ck_employee_fields_type",
+        ),
+    )
+
+    field_key: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    help_text: Mapped[str | None] = mapped_column(String(300))
+    placeholder: Mapped[str | None] = mapped_column(String(120))
+    field_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    section: Mapped[str] = mapped_column(String(80), nullable=False, default="Personal Details")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    show_in_register: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+
+    options: Mapped[list["EmployeeFieldOption"]] = relationship(
+        back_populates="field",
+        order_by="EmployeeFieldOption.sort_order",
+        cascade="all, delete-orphan",
+    )
+
+
+class EmployeeFieldOption(UUIDPrimaryKey, TimestampMixin, db.Model):
+    __tablename__ = "employee_field_options"
+
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("employee_fields.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_retired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+
+    field: Mapped[EmployeeField] = relationship(back_populates="options")
 
 
 class AuditEvent(UUIDPrimaryKey, db.Model):

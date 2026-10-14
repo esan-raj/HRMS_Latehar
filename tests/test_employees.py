@@ -18,31 +18,79 @@ from app.models import (
 from app.persistence import new_id
 
 
+def _facility():
+    existing = db.session.scalar(select(Facility).limit(1))
+    if existing is not None:
+        return existing
+    row = Facility(
+        id=new_id(),
+        name="Northview PHC",
+        code="PHC-TEST",
+        facility_type="PHC",
+        district="Northview",
+        is_active=True,
+        version=1,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
 def payload(**overrides):
     data = {
         "employee_code": "EMP-2001",
         "full_name": "Asha Menon",
         "date_of_birth": "1990-01-15",
         "gender": "female",
-        "phone": "09876543210",
+        "phone": "9867543210",
         "email": "asha@example.com",
         "is_active": "y",
         "version": "1",
+        "fields_version": "1",
     }
     data.update(overrides)
     return data
 
 
 def create_employee(admin, **overrides):
-    data = payload(version="0", **overrides)
+    facility = _facility()
+    data = payload(version="0", facility_id=str(facility.id), **overrides)
     response = admin.post("/employees/new", data=data)
     assert response.status_code == 302, response.get_data(as_text=True)
     return db.session.scalar(select(Employee).where(Employee.employee_code == data["employee_code"].upper()))
 
 
+def test_employee_form_rejects_weak_name_and_phone(admin):
+    facility = _facility()
+    page = admin.get("/employees/new")
+    assert b'maxlength="10"' in page.data
+    assert b'pattern="[6-9][0-9]{9}"' in page.data
+    rejected = admin.post(
+        "/employees/new",
+        data=payload(
+            version="0",
+            facility_id=str(facility.id),
+            full_name="1234",
+            phone="+919867543210",
+        ),
+    )
+    body = rejected.get_data(as_text=True)
+    assert rejected.status_code == 400
+    assert "includes letters" in body
+    assert "country code" in body
+    for fake in ("1234567890", "0000000000", "9876543210", "1111111111"):
+        fake_response = admin.post(
+            "/employees/new",
+            data=payload(version="0", facility_id=str(facility.id), phone=fake, employee_code="EMP-FAKE"),
+        )
+        assert fake_response.status_code == 400
+        assert "real mobile number" in fake_response.get_data(as_text=True)
+    assert db.session.scalar(select(Employee).where(Employee.employee_code == "EMP-2001")) is None
+
+
 def test_employee_crud_deactivation_and_phone_string(admin):
     employee = create_employee(admin)
-    assert employee.phone == "09876543210"
+    assert employee.phone == "9867543210"
     assert isinstance(employee.phone, str)
     page = admin.get(f"/employees/{employee.id}/personal")
     assert page.status_code == 200
@@ -50,7 +98,7 @@ def test_employee_crud_deactivation_and_phone_string(admin):
 
     updated = admin.post(
         f"/employees/{employee.id}/personal",
-        data=payload(full_name="Asha K Menon", version=str(employee.version)),
+        data=payload(full_name="Asha K Menon", version=str(employee.version), facility_id=str(employee.facility_id)),
     )
     assert updated.status_code == 302
     employee = db.session.get(Employee, employee.id)
@@ -74,7 +122,11 @@ def test_employee_crud_deactivation_and_phone_string(admin):
 def test_duplicate_employee_code_is_rejected(admin):
     create_employee(admin, employee_code="EMP-2001")
     before = db.session.scalar(select(func.count()).select_from(AuditEvent))
-    duplicate = admin.post("/employees/new", data=payload(employee_code="emp-2001", full_name="Other Person", version="0"))
+    facility = db.session.scalar(select(Facility).limit(1))
+    duplicate = admin.post(
+        "/employees/new",
+        data=payload(employee_code="emp-2001", full_name="Other Person", version="0", facility_id=str(facility.id)),
+    )
     assert duplicate.status_code == 400
     assert b"already exists" in duplicate.data
     assert b"Other Person" in duplicate.data
@@ -86,12 +138,12 @@ def test_stale_personal_edit_does_not_overwrite(admin):
     employee = create_employee(admin, full_name="First Name")
     first = admin.post(
         f"/employees/{employee.id}/personal",
-        data=payload(full_name="Second Name", version="1"),
+        data=payload(full_name="Second Name", version="1", facility_id=str(employee.facility_id)),
     )
     assert first.status_code == 302
     stale = admin.post(
         f"/employees/{employee.id}/personal",
-        data=payload(full_name="Third Name", version="1"),
+        data=payload(full_name="Third Name", version="1", facility_id=str(employee.facility_id)),
     )
     assert stale.status_code == 409
     assert b"latest values" in stale.data
@@ -105,11 +157,11 @@ def test_audit_records_create_update_and_deactivate(admin, app):
     assert created.actor_id == __import__("uuid").UUID(app.config["ADMIN_USER_ID"])
     assert created.entity_type == "employee"
     assert created.changes["employee_code"]["after"] == "EMP-AUD1"
-    assert created.changes["phone"]["after"] == "09876543210"
+    assert created.changes["phone"]["after"] == "9867543210"
     assert "password" not in created.changes
     admin.post(
         f"/employees/{employee.id}/personal",
-        data=payload(employee_code="EMP-AUD1", full_name="Audited Name", version="1"),
+        data=payload(employee_code="EMP-AUD1", full_name="Audited Name", version="1", facility_id=str(employee.facility_id)),
     )
     updated = db.session.scalars(
         select(AuditEvent).where(AuditEvent.entity_id == employee.id, AuditEvent.action == "update")

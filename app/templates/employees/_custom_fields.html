@@ -1,0 +1,36 @@
+{% macro custom_field(field, custom_values, custom_errors) %}
+  {% set input_id = "custom-" ~ field.id %}
+  {% set current = custom_values.get(field.id|string, "") %}
+  {% set rules = field_input_rules(field) %}
+  {% set described = [] %}
+  {% if field.help_text %}{% set _ = described.append(input_id ~ "-help") %}{% endif %}
+  {% if rules.hint %}{% set _ = described.append(input_id ~ "-rule") %}{% endif %}
+  {% if custom_errors.get(field.id|string) %}{% set _ = described.append(input_id ~ "-error") %}{% endif %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ input_id }}">{{ field.label }}{% if field.required %} <span class="text-danger">*</span>{% endif %}</label>
+    {% if field.help_text %}<div class="form-text" id="{{ input_id }}-help">{{ field.help_text }}</div>{% endif %}
+    {% if rules.hint %}<div class="form-text" id="{{ input_id }}-rule">{{ rules.hint }}</div>{% endif %}
+    {% if field.field_type == "long_text" %}
+      <textarea class="form-control{% if custom_errors.get(field.id|string) %} is-invalid{% endif %}" id="{{ input_id }}" name="custom_{{ field.id }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %} {% if described %}aria-describedby="{{ described|join(' ') }}"{% endif %} {% if custom_errors.get(field.id|string) %}aria-invalid="true"{% endif %} {% for key, value in rules.attrs.items() %}{{ key }}="{{ value }}" {% endfor %}>{{ current }}</textarea>
+    {% elif field.field_type == "yes_no" %}
+      <select class="form-select{% if custom_errors.get(field.id|string) %} is-invalid{% endif %}" id="{{ input_id }}" name="custom_{{ field.id }}" {% if described %}aria-describedby="{{ described|join(' ') }}"{% endif %} {% if custom_errors.get(field.id|string) %}aria-invalid="true"{% endif %} {% for key, value in rules.attrs.items() %}{{ key }}="{{ value }}" {% endfor %}>
+        <option value="">Select</option>
+        <option value="yes" {% if current == "yes" %}selected{% endif %}>Yes</option>
+        <option value="no" {% if current == "no" %}selected{% endif %}>No</option>
+      </select>
+    {% elif field.field_type == "dropdown" %}
+      <select class="form-select{% if custom_errors.get(field.id|string) %} is-invalid{% endif %}" id="{{ input_id }}" name="custom_{{ field.id }}" {% if described %}aria-describedby="{{ described|join(' ') }}"{% endif %} {% if custom_errors.get(field.id|string) %}aria-invalid="true"{% endif %} {% for key, value in rules.attrs.items() %}{{ key }}="{{ value }}" {% endfor %}>
+        <option value="">Select</option>
+        {% for option in field.options if not option.is_retired or option.id|string == current %}
+          <option value="{{ option.id }}" {% if option.id|string == current %}selected{% endif %}>{{ option.label }}{% if option.is_retired %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      {% set input_type = "date" if field.field_type == "date" else "text" %}
+      <input class="form-control{% if custom_errors.get(field.id|string) %} is-invalid{% endif %}" id="{{ input_id }}" name="custom_{{ field.id }}" type="{{ input_type }}" value="{{ current }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %} {% if described %}aria-describedby="{{ described|join(' ') }}"{% endif %} {% if custom_errors.get(field.id|string) %}aria-invalid="true"{% endif %} {% for key, value in rules.attrs.items() %}{{ key }}="{{ value }}" {% endfor %}>
+    {% endif %}
+    {% if custom_errors.get(field.id|string) %}
+      <div class="invalid-feedback d-block" id="{{ input_id }}-error">{{ custom_errors.get(field.id|string) }}</div>
+    {% endif %}
+  </div>
+{% endmacro %}

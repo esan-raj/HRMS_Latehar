@@ -76,8 +76,9 @@ def register_commands(app) -> None:
                 "full_name": "Asha Menon",
                 "date_of_birth": date(1988, 4, 12),
                 "gender": "female",
-                "phone": "09876111222",
+                "phone": "9876111222",
                 "email": "asha.menon@example.com",
+                "facility_id": phc.id,
                 "is_active": True,
             },
         )
@@ -229,8 +230,9 @@ def register_commands(app) -> None:
                 "full_name": "Ravi Deshmukh",
                 "date_of_birth": date(1992, 11, 3),
                 "gender": "male",
-                "phone": "09876000011",
+                "phone": "9876000011",
                 "email": "ravi.deshmukh@example.com",
+                "facility_id": chc.id,
                 "is_active": True,
             },
         )
@@ -241,8 +243,9 @@ def register_commands(app) -> None:
                 "full_name": "Leela Thomas",
                 "date_of_birth": date(1985, 2, 19),
                 "gender": "female",
-                "phone": None,
+                "phone": "9876000022",
                 "email": None,
+                "facility_id": chc.id,
                 "is_active": False,
             },
         )

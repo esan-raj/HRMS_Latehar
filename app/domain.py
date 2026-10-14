@@ -11,6 +11,14 @@ class FieldError(DomainError):
         self.field = field
 
 
+class StaleFormError(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "The employee form changed. Reload this page and review the fields before saving.",
+            409,
+        )
+
+
 class StaleEditError(DomainError):
     def __init__(self) -> None:
         super().__init__(

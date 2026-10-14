@@ -9,6 +9,7 @@
       <nav aria-label="Primary">
         <a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}aria-current="page"{% endif %}>Dashboard</a>
         <a href="{{ url_for('employees.index') }}" {% if request.endpoint and request.endpoint.startswith('employees.') %}aria-current="page"{% endif %}>Employees</a>
+        <a href="{{ url_for('fields.index') }}" {% if request.endpoint and request.endpoint.startswith('fields.') %}aria-current="page"{% endif %}>Manage fields</a>
         <div class="group">Master data</div>
         {% for item, label in [
           ('departments', 'Departments'),

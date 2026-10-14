@@ -1,14 +1,25 @@
 {% extends "base.html" %}
 {% from "macros.html" import render_field %}
+{% from "employees/_custom_fields.html" import custom_field with context %}
 {% block title %}Add employee · HR Records{% endblock %}
 {% block content %}
   <h1 class="page-title">Add employee</h1>
   <p class="muted">Save personal details first. The other sections are on the employee profile.</p>
   <form class="card" method="post" action="{{ url_for('employees.create') }}" style="max-width: 40rem;">
     {{ form.hidden_tag() }}
-    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
-    {% for field in form if field.widget.input_type != 'hidden' %}
+    {% if form.errors or custom_errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' and field.name not in ['full_name', 'phone', 'facility_id'] %}
       {{ render_field(field) }}
+    {% endfor %}
+    {% for definition in form_fields %}
+      {% if definition.is_system %}
+        {{ render_field(form[definition.field_key]) }}
+        {% if definition.field_key == 'facility_id' %}
+          <p class="mb-3"><a href="{{ url_for('masters.index', slug='facilities') }}">Add a facility</a></p>
+        {% endif %}
+      {% else %}
+        {{ custom_field(definition, custom_values, custom_errors) }}
+      {% endif %}
     {% endfor %}
     <button class="btn btn-primary" type="submit">Save employee</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('employees.index') }}">Cancel</a>

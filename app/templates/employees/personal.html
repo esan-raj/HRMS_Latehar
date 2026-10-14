@@ -1,12 +1,23 @@
 {% extends "employees/profile_base.html" %}
 {% from "macros.html" import render_field %}
+{% from "employees/_custom_fields.html" import custom_field with context %}
 {% block title %}Personal details · {{ employee.full_name }}{% endblock %}
 {% block section %}
   <form class="card" method="post" style="max-width: 40rem;">
     {{ form.hidden_tag() }}
-    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
-    {% for field in form if field.widget.input_type != 'hidden' %}
+    {% if form.errors or custom_errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' and field.name not in ['full_name', 'phone', 'facility_id'] %}
       {{ render_field(field) }}
+    {% endfor %}
+    {% for definition in form_fields %}
+      {% if definition.is_system %}
+        {{ render_field(form[definition.field_key]) }}
+        {% if definition.field_key == 'facility_id' %}
+          <p class="mb-3"><a href="{{ url_for('masters.index', slug='facilities') }}">Add a facility</a></p>
+        {% endif %}
+      {% else %}
+        {{ custom_field(definition, custom_values, custom_errors) }}
+      {% endif %}
     {% endfor %}
     <button class="btn btn-primary" type="submit">Save personal details</button>
   </form>

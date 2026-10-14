@@ -8,8 +8,8 @@ from wtforms.validators import DataRequired, Email, InputRequired, Length, Numbe
 from wtforms.widgets import HiddenInput
 
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{0,31}$")
-PHONE_RE = re.compile(r"^[0-9+(). -]{7,20}$")
-PIN_RE = re.compile(r"^[0-9A-Za-z -]{4,10}$")
+PHONE_RE = re.compile(r"^[6-9][0-9]{9}$")
+PIN_RE = re.compile(r"^[0-9]{6}$")
 GENDERS = (("female", "Female"), ("male", "Male"), ("other", "Other"))
 ALLEGATION_STATUSES = (("open", "Open"), ("closed", "Closed"))
 LEAVE_STATUSES = (("recorded", "Recorded"), ("cancelled", "Cancelled"))
@@ -40,14 +40,41 @@ def valid_code(_form, field):
         raise ValidationError("Use letters, numbers, and the characters . _ / -.")
 
 
+def phone_problem(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return "Enter a mobile number."
+    if not re.fullmatch(r"[0-9]{10}", text):
+        return "Enter exactly 10 digits. Do not include a country code."
+    if _implausible_mobile(text):
+        return "Enter a real mobile number. 1234567890 and numbers like 0000000000 are not allowed."
+    if not PHONE_RE.fullmatch(text):
+        return "Enter a valid mobile number starting with 6, 7, 8, or 9."
+    return None
+
+
+def _implausible_mobile(text: str) -> bool:
+    if len(set(text)) == 1 or text == "1234567890":
+        return True
+    steps = [int(text[index + 1]) - int(text[index]) for index in range(9)]
+    return all(step == 1 for step in steps) or all(step == -1 for step in steps)
+
+
 def valid_phone(_form, field):
-    if field.data and not PHONE_RE.fullmatch(field.data):
-        raise ValidationError("Use digits and the characters + ( ) . - or spaces.")
+    message = phone_problem(field.data)
+    if field.data and message:
+        raise ValidationError(message)
+
+
+def valid_person_name(_form, field):
+    value = field.data or ""
+    if not any(character.isalpha() for character in value):
+        raise ValidationError("Enter a name that includes letters.")
 
 
 def valid_pin(_form, field):
     if not PIN_RE.fullmatch(field.data or ""):
-        raise ValidationError("Enter a PIN or postal code of 4 to 10 characters.")
+        raise ValidationError("Enter a 6-digit PIN code.")
 
 
 def not_future_birth(_form, field):
@@ -64,24 +91,48 @@ class PersonalForm(VersionedForm):
         "Employee code",
         filters=[strip_upper],
         validators=[DataRequired(), Length(max=32), valid_code],
+        render_kw={
+            "maxlength": "32",
+            "pattern": "[A-Za-z0-9][A-Za-z0-9._/-]{0,31}",
+            "title": "Use letters, numbers, and the characters . _ / -.",
+            "autocapitalize": "characters",
+        },
     )
-    full_name = StringField("Name", filters=[strip], validators=[DataRequired(), Length(max=200)])
+    full_name = StringField(
+        "Name",
+        filters=[strip],
+        validators=[DataRequired(), Length(min=2, max=200), valid_person_name],
+        render_kw={"minlength": "2", "maxlength": "200", "data-must-letter": "1", "autocomplete": "name"},
+    )
     date_of_birth = DateField(
         "Date of birth",
         format="%Y-%m-%d",
         validators=[DataRequired(), not_future_birth],
-        render_kw={"type": "date"},
+        render_kw={"type": "date", "min": "1900-01-01"},
     )
     gender = SelectField("Gender", choices=GENDERS, validators=[DataRequired()], validate_choice=True)
     phone = StringField(
-        "Phone",
-        filters=[empty_none],
-        validators=[Optional(), Length(max=20), valid_phone],
+        "Mobile number",
+        filters=[strip],
+        validators=[DataRequired(), Length(min=10, max=10), valid_phone],
+        render_kw={
+            "inputmode": "numeric",
+            "minlength": "10",
+            "maxlength": "10",
+            "pattern": "[6-9][0-9]{9}",
+            "title": "Enter exactly 10 digits starting with 6, 7, 8, or 9. Do not include a country code.",
+            "data-mobile": "1",
+            "placeholder": "9867123450",
+            "autocomplete": "tel",
+        },
     )
+    facility_id = SelectField("Facility", validators=[DataRequired()], validate_choice=True)
+    fields_version = IntegerField(widget=HiddenInput(), validators=[InputRequired()])
     email = StringField(
         "Email",
         filters=[lower_email],
         validators=[Optional(), Email(), Length(max=254)],
+        render_kw={"type": "email", "maxlength": "254", "autocomplete": "email"},
     )
     is_active = BooleanField("Active", default=True)
 
@@ -93,8 +144,44 @@ class PersonalForm(VersionedForm):
             "gender": self.gender.data,
             "phone": self.phone.data,
             "email": self.email.data,
+            "facility_id": uuid.UUID(str(self.facility_id.data)),
             "is_active": bool(self.is_active.data),
         }
+
+
+class FieldDefinitionForm(FlaskForm):
+    label = StringField("Label", filters=[strip], validators=[DataRequired(), Length(max=120)])
+    help_text = StringField("Help text", filters=[empty_none], validators=[Optional(), Length(max=300)])
+    placeholder = StringField("Placeholder", filters=[empty_none], validators=[Optional(), Length(max=120)])
+    field_type = SelectField(
+        "Field type",
+        choices=(
+            ("short_text", "Short text"),
+            ("long_text", "Long text"),
+            ("integer", "Integer"),
+            ("decimal", "Decimal"),
+            ("date", "Date"),
+            ("dropdown", "Dropdown"),
+            ("yes_no", "Yes/no"),
+        ),
+        validators=[DataRequired()],
+        validate_choice=True,
+    )
+    required = BooleanField("Required")
+    section = StringField(
+        "Section",
+        filters=[strip],
+        validators=[DataRequired(), Length(max=80)],
+        default="Personal Details",
+    )
+    show_in_register = BooleanField("Show in the employee register")
+    options = TextAreaField(
+        "Dropdown options",
+        filters=[strip],
+        validators=[Optional(), Length(max=4000)],
+        description="One option per line. Used only for dropdown fields.",
+    )
+    version = IntegerField(widget=HiddenInput(), default=0, validators=[InputRequired()])
 
 
 class AddressForm(FlaskForm):
@@ -102,13 +189,23 @@ class AddressForm(FlaskForm):
     present_line2 = StringField("Address line 2", filters=[empty_none], validators=[Optional(), Length(max=250)])
     present_district = StringField("District", filters=[strip], validators=[DataRequired(), Length(max=120)])
     present_state = StringField("State", filters=[strip], validators=[DataRequired(), Length(max=120)])
-    present_pin = StringField("PIN code", filters=[strip], validators=[DataRequired(), valid_pin])
+    present_pin = StringField(
+        "PIN code",
+        filters=[strip],
+        validators=[DataRequired(), valid_pin],
+        render_kw={"inputmode": "numeric", "minlength": "6", "maxlength": "6", "pattern": "[0-9]{6}", "title": "Enter a 6-digit PIN code."},
+    )
     present_version = IntegerField(widget=HiddenInput(), default=0, validators=[InputRequired()])
     permanent_line1 = StringField("Address line 1", filters=[strip], validators=[DataRequired(), Length(max=250)])
     permanent_line2 = StringField("Address line 2", filters=[empty_none], validators=[Optional(), Length(max=250)])
     permanent_district = StringField("District", filters=[strip], validators=[DataRequired(), Length(max=120)])
     permanent_state = StringField("State", filters=[strip], validators=[DataRequired(), Length(max=120)])
-    permanent_pin = StringField("PIN code", filters=[strip], validators=[DataRequired(), valid_pin])
+    permanent_pin = StringField(
+        "PIN code",
+        filters=[strip],
+        validators=[DataRequired(), valid_pin],
+        render_kw={"inputmode": "numeric", "minlength": "6", "maxlength": "6", "pattern": "[0-9]{6}", "title": "Enter a 6-digit PIN code."},
+    )
     permanent_version = IntegerField(widget=HiddenInput(), default=0, validators=[InputRequired()])
 
     def group(self, prefix: str) -> dict:

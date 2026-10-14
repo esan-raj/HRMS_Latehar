@@ -1,8 +1,10 @@
 import re
 
-from tests.conftest import CsrfConfig, authenticate
 from app import create_app
 from app.extensions import db
+from app.models import Facility
+from app.persistence import new_id
+from tests.conftest import CsrfConfig, authenticate
 
 
 def test_login_and_employee_post_require_csrf():
@@ -15,6 +17,17 @@ def test_login_and_employee_post_require_csrf():
         assert b"could not be submitted" in missing.data
 
         authenticate(client, application)
+        facility = Facility(
+            id=new_id(),
+            name="Northview PHC",
+            code="PHC-CSRF",
+            facility_type="PHC",
+            district="Northview",
+            is_active=True,
+            version=1,
+        )
+        db.session.add(facility)
+        db.session.commit()
         page = client.get("/employees/new")
         assert page.status_code == 200
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.get_data(as_text=True)).group(1)
@@ -37,6 +50,9 @@ def test_login_and_employee_post_require_csrf():
                 "full_name": "With Token",
                 "date_of_birth": "1990-01-01",
                 "gender": "female",
+                "phone": "9867543210",
+                "facility_id": str(facility.id),
+                "fields_version": "1",
                 "is_active": "y",
                 "version": "0",
             },

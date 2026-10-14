@@ -27,7 +27,17 @@ from app.models import (
 )
 from app.persistence import apply_versioned_update, commit_or_conflict, new_id, reload_locked
 
-EMPLOYEE_FIELDS = ("employee_code", "full_name", "date_of_birth", "gender", "phone", "email", "is_active")
+EMPLOYEE_FIELDS = (
+    "employee_code",
+    "full_name",
+    "date_of_birth",
+    "gender",
+    "phone",
+    "email",
+    "facility_id",
+    "custom_data",
+    "is_active",
+)
 ADDRESS_FIELDS = ("address_type", "line1", "line2", "district", "state", "pin_code")
 EMPLOYMENT_FIELDS = (
     "department_id",
@@ -41,6 +51,9 @@ POSTING_FIELDS = ("facility_id", "designation_id", "start_date", "end_date", "or
 
 def create_employee(actor_id, values: dict) -> Employee:
     _reject_duplicate_code(values["employee_code"], None)
+    values = dict(values)
+    values.setdefault("custom_data", {})
+    _require_employee_basics(values)
     employee = Employee(id=new_id(), version=1, **values)
     db.session.add(employee)
     record_audit(actor_id, "employee", employee.id, "create", {}, column_snapshot(employee, EMPLOYEE_FIELDS))
@@ -50,6 +63,7 @@ def create_employee(actor_id, values: dict) -> Employee:
 
 def update_employee(actor_id, employee_id, submitted_version: int, values: dict):
     employee = reload_locked(Employee, employee_id)
+    _require_employee_basics(values)
     _reject_duplicate_code(values["employee_code"], employee.id)
     before, after, changed = apply_versioned_update(employee, submitted_version, values, EMPLOYEE_FIELDS)
     if not changed:
@@ -232,6 +246,23 @@ def _save_address(actor_id, employee_id, address_type: str, values: dict, submit
     if changed:
         record_audit(actor_id, "address", row.id, "update", before, after)
     return changed
+
+
+def _require_employee_basics(values: dict) -> None:
+    from app.forms import phone_problem
+
+    name = str(values.get("full_name") or "").strip()
+    if len(name) < 2 or not any(character.isalpha() for character in name):
+        db.session.rollback()
+        raise FieldError("full_name", "Enter an employee name of at least 2 characters, including letters.")
+    message = phone_problem(values.get("phone") or "")
+    if message:
+        db.session.rollback()
+        raise FieldError("phone", message)
+    facility = db.session.get(Facility, values.get("facility_id"))
+    if facility is None:
+        db.session.rollback()
+        raise FieldError("facility_id", "Choose a facility.")
 
 
 def _reject_duplicate_code(code: str, exclude_id):

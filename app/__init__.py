@@ -39,6 +39,7 @@ def create_app(config_class=None):
     from app.auth.routes import bp as auth_bp
     from app.dashboard import bp as dashboard_bp
     from app.employee_routes import bp as employees_bp
+    from app.field_routes import bp as fields_bp
     from app.health import bp as health_bp
     from app.master_routes import bp as masters_bp
     from app import record_routes  # noqa: F401
@@ -48,6 +49,7 @@ def create_app(config_class=None):
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(employees_bp)
+    app.register_blueprint(fields_bp)
     app.register_blueprint(masters_bp)
     app.register_blueprint(health_bp)
     for rule in app.url_map.iter_rules():
@@ -55,6 +57,12 @@ def create_app(config_class=None):
     register_commands(app)
     register_guards(app)
     _register_errors(app)
+
+    @app.context_processor
+    def _field_rules():
+        from app.fielddefs import field_input_rules
+
+        return {"field_input_rules": field_input_rules}
 
     @app.template_filter("show_date")
     def show_date(value):

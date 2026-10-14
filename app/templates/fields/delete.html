@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Delete field · HR Records{% endblock %}
+{% block content %}
+  <div class="card" style="max-width: 36rem;">
+    <h1 class="page-title">Delete {{ field.label }}</h1>
+    {% if field.is_system %}
+      <p>Employee name, facility, and mobile number cannot be deleted.</p>
+      <a class="btn btn-outline-secondary" href="{{ url_for('fields.index') }}">Back</a>
+    {% else %}
+      <p>This permanently deletes the field and its stored values on <strong>{{ count }}</strong> employee records. Hiding the column or archiving the field keeps the values.</p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="version" value="{{ field.version }}">
+        <div class="mb-3">
+          <label class="form-label" for="confirm_label">Type {{ field.label }} to confirm</label>
+          <input class="form-control" id="confirm_label" name="confirm_label" autocomplete="off" required>
+        </div>
+        <button class="btn btn-danger" type="submit">Delete field</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('fields.edit', field_id=field.id) }}">Cancel</a>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

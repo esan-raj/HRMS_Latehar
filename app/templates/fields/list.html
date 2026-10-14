@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "macros.html" import render_field, csrf_field %}
+{% block title %}Manage fields · HR Records{% endblock %}
+{% block content %}
+  <h1 class="page-title">Manage fields</h1>
+  <p class="muted">Employee name, facility, and mobile number stay required. Custom fields are stored by a stable id, so renaming a label keeps existing values.</p>
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Label</th>
+            <th scope="col">Section</th>
+            <th scope="col">Type</th>
+            <th scope="col">Register</th>
+            <th scope="col">State</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for field in fields %}
+            <tr>
+              <td>{{ field.label }}{% if field.required %} <span class="text-danger">*</span>{% endif %}</td>
+              <td>{{ field.section }}</td>
+              <td>{{ field.field_type }}</td>
+              <td>{{ "Shown" if field.show_in_register else "Hidden" }}</td>
+              <td>
+                {% if field.is_system %}Required{% elif field.is_archived %}Archived{% else %}Active{% endif %}
+                {% if counts.get(field.id) %} · {{ counts.get(field.id) }} missing{% endif %}
+              </td>
+              <td class="actions">
+                <a href="{{ url_for('fields.edit', field_id=field.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('fields.up', field_id=field.id) }}">{{ csrf_field() }}<button class="btn btn-link btn-sm p-0" type="submit">Up</button></form>
+                <form method="post" action="{{ url_for('fields.down', field_id=field.id) }}">{{ csrf_field() }}<button class="btn btn-link btn-sm p-0" type="submit">Down</button></form>
+                {% if not field.is_system %}
+                  {% if field.is_archived %}
+                    <form method="post" action="{{ url_for('fields.restore', field_id=field.id) }}">{{ csrf_field() }}<button class="btn btn-link btn-sm p-0" type="submit">Restore</button></form>
+                  {% else %}
+                    <form method="post" action="{{ url_for('fields.archive', field_id=field.id) }}">{{ csrf_field() }}<button class="btn btn-link btn-sm p-0" type="submit">Archive</button></form>
+                  {% endif %}
+                  <a href="{{ url_for('fields.delete', field_id=field.id) }}">Delete</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <form class="card" method="post" style="max-width: 40rem;">
+    <h2 class="h5">Add field</h2>
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in form if field.widget.input_type != 'hidden' and field.name != 'version' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Add field</button>
+  </form>
+{% endblock %}

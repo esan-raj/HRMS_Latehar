@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "macros.html" import render_field, csrf_field %}
+{% block title %}Edit field · HR Records{% endblock %}
+{% block content %}
+  <h1 class="page-title">{{ field.label }}</h1>
+  {% if field.is_system %}
+    <p class="muted">This field is required for every employee. You can change its label, help text, placeholder, section, order, and register visibility.</p>
+  {% else %}
+    <p class="muted">{{ count }} employee records currently store a value for this field.</p>
+  {% endif %}
+  <form class="card" method="post" style="max-width: 40rem;">
+    {{ form.hidden_tag() }}
+    {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {{ render_field(form.label) }}
+    {{ render_field(form.help_text) }}
+    {{ render_field(form.placeholder) }}
+    {{ render_field(form.section) }}
+    {% if field.is_system %}
+      <p><strong>Type:</strong> {{ field.field_type }}</p>
+      <p><strong>Required:</strong> Yes. This cannot be changed.</p>
+      <div class="visually-hidden">{{ form.field_type() }}</div>
+    {% else %}
+      {{ render_field(form.field_type) }}
+      {{ render_field(form.required) }}
+      {{ render_field(form.options) }}
+    {% endif %}
+    {{ render_field(form.show_in_register) }}
+    <button class="btn btn-primary" type="submit">Save field</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('fields.index') }}">Back</a>
+  </form>
+  {% if field.field_type == "dropdown" %}
+    <section class="card" style="max-width: 40rem;">
+      <h2 class="h5">Options</h2>
+      <ul class="mb-3">
+        {% for option in field.options %}
+          <li class="mb-1">
+            {{ option.label }}{% if option.is_retired %} <span class="muted">(retired)</span>{% endif %}
+            {% if not option.is_retired %}
+              <form class="d-inline" method="post" action="{{ url_for('fields.retire_field_option', field_id=field.id, option_id=option.id) }}">
+                {{ csrf_field() }}
+                <button class="btn btn-link btn-sm p-0" type="submit">Retire</button>
+              </form>
+            {% endif %}
+            <form class="d-inline" method="post" action="{{ url_for('fields.delete_field_option', field_id=field.id, option_id=option.id) }}">
+              {{ csrf_field() }}
+              <button class="btn btn-link btn-sm p-0" type="submit">Delete</button>
+            </form>
+          </li>
+        {% else %}
+          <li>No options yet.</li>
+        {% endfor %}
+      </ul>
+      <form method="post" action="{{ url_for('fields.add_field_option', field_id=field.id) }}" class="d-flex gap-2">
+        {{ csrf_field() }}
+        <label class="visually-hidden" for="option_label">New option</label>
+        <input class="form-control" id="option_label" name="option_label" maxlength="120" required>
+        <button class="btn btn-outline-primary" type="submit">Add option</button>
+      </form>
+    </section>
+  {% endif %}
+{% endblock %}

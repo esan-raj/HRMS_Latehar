@@ -39,6 +39,10 @@ def run_migrations_offline():
 def run_migrations_online():
     connectable = target_db.engine
     with connectable.connect() as connection:
+        # Supabase cancels catalog writes (pg_type) when the role timeout is short.
+        connection.execute(text("SET statement_timeout TO 0"))
+        connection.execute(text("SET lock_timeout TO '120s'"))
+        connection.execute(text("SET idle_in_transaction_session_timeout TO '180s'"))
         connection.execute(text("CREATE SCHEMA IF NOT EXISTS hrms"))
         connection.commit()
         context.configure(
