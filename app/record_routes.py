@@ -311,6 +311,8 @@ def _register_collection(spec):
 
     def collection(employee_id, spec=spec):
         employee = get_employee(employee_id)
+        if key == "appointments" and request.method == "GET":
+            return redirect(_section_url(key, employee))
         form = spec["form"]()
         spec["prepare"](form, None, False)
         if form.validate_on_submit():
@@ -318,11 +320,11 @@ def _register_collection(spec):
                 create_child(g.actor_id, employee.id, spec["model"], spec["entity"], spec["fields"], form.values())
             except FieldError as exc:
                 apply_field_error(form, exc)
-                return _render_collection(employee, spec, form, exc.status)
-            flash(f"{spec['title']} record saved.", "success")
-            return redirect(url_for(f"employees.{key}_list", employee_id=employee.id))
+                return _show_saved_collection(employee, spec, form, exc.status)
+            flash("Job appointment saved." if key == "appointments" else f"{spec['title']} record saved.", "success")
+            return redirect(_section_url(key, employee))
         status = 400 if request.method == "POST" else 200
-        return _render_collection(employee, spec, form, status)
+        return _show_saved_collection(employee, spec, form, status)
 
     def edit(employee_id, record_id, spec=spec):
         employee = get_employee(employee_id)
@@ -343,7 +345,7 @@ def _register_collection(spec):
                 )
             except FieldError as exc:
                 apply_field_error(form, exc)
-                return _render_collection(employee, spec, form, exc.status, editing=record)
+                return _show_saved_collection(employee, spec, form, exc.status, editing=record)
             except StaleEditError as exc:
                 db.session.rollback()
                 employee = get_employee(employee_id)
@@ -351,11 +353,11 @@ def _register_collection(spec):
                 form = spec["form"]()
                 spec["prepare"](form, record, True)
                 flash(exc.message, "warning")
-                return _render_collection(employee, spec, form, 409, editing=record)
+                return _show_saved_collection(employee, spec, form, 409, editing=record)
             flash(f"{spec['title']} record saved." if changed else "No changes to save.", "success" if changed else "info")
-            return redirect(url_for(f"employees.{key}_list", employee_id=employee.id))
+            return redirect(_section_url(key, employee))
         status = 400 if request.method == "POST" else 200
-        return _render_collection(employee, spec, form, status, editing=record)
+        return _show_saved_collection(employee, spec, form, status, editing=record)
 
     def delete(employee_id, record_id, spec=spec):
         employee = get_employee(employee_id)
@@ -367,7 +369,7 @@ def _register_collection(spec):
                 message="Delete this record? This removes the history entry.",
                 action=url_for(f"employees.{key}_delete", employee_id=employee.id, record_id=record.id),
                 confirm_label="Delete",
-                cancel_url=url_for(f"employees.{key}_list", employee_id=employee.id),
+                cancel_url=_section_url(key, employee),
                 version=record.version,
             )
         version = request.form.get("version", type=int)
@@ -381,9 +383,9 @@ def _register_collection(spec):
             )
         except StaleEditError as exc:
             flash(exc.message, "warning")
-            return redirect(url_for(f"employees.{key}_list", employee_id=employee.id))
+            return redirect(_section_url(key, employee))
         flash("Record deleted.", "success")
-        return redirect(url_for(f"employees.{key}_list", employee_id=employee.id))
+        return redirect(_section_url(key, employee))
 
     collection.__name__ = f"{key}_list"
     edit.__name__ = f"{key}_edit"
@@ -404,21 +406,63 @@ def _register_collection(spec):
 
 
 for _spec in COLLECTIONS:
-    _register_collection(_spec)
+    if _spec["key"] == "appointments":
+        _register_collection(_spec)
+
+
+def appointment_context(employee, form=None, editing=None):
+    spec = next(item for item in COLLECTIONS if item["key"] == "appointments")
+    if form is None:
+        form = spec["form"]()
+        spec["prepare"](form, None, False)
+    return {
+        "appointment_form": form,
+        "appointment_rows": _rows(spec, employee.id),
+        "appointment_spec": spec,
+        "appointment_editing": editing,
+    }
+
+
+def _section_url(key, employee):
+    if key == "appointments":
+        return url_for("employees.employment", employee_id=employee.id)
+    return url_for(f"employees.{key}_list", employee_id=employee.id)
+
+
+def _show_saved_collection(employee, spec, form, status=200, editing=None):
+    if spec["key"] != "appointments":
+        return _render_collection(employee, spec, form, status, editing)
+    from app.employee_routes import EmploymentForm, _employment, _prepare_employment, _render_employment
+
+    detail = _employment(employee.id)
+    employment_form = EmploymentForm()
+    _prepare_employment(employment_form, detail, True)
+    return _render_employment(employee, employment_form, status, form, editing)
 
 
 @bp.route("/<uuid:employee_id>/postings", methods=["GET", "POST"])
 def postings(employee_id):
+    from app.web import current_posting
+
     employee = get_employee(employee_id)
+    current = current_posting(employee.id)
     form = PostingForm()
-    _prepare_posting(form, None, False)
+    _prepare_posting(form, current, request.method == "GET")
     if form.validate_on_submit():
+        values = form.values()
+        values["end_date"] = None
         try:
-            _row, _changed = save_posting(g.actor_id, employee.id, None, form.version.data, form.values())
+            _row, changed = save_posting(
+                g.actor_id,
+                employee.id,
+                current.id if current is not None else None,
+                form.version.data,
+                values,
+            )
         except FieldError as exc:
             apply_field_error(form, exc)
             return _render_postings(employee, form, exc.status)
-        flash("Posting saved.", "success")
+        flash("Current posting saved." if changed else "No changes to save.", "success" if changed else "info")
         return redirect(url_for("employees.postings", employee_id=employee.id))
     status = 400 if request.method == "POST" else 200
     return _render_postings(employee, form, status)
@@ -479,16 +523,11 @@ def postings_delete(employee_id, record_id):
 
 
 def _render_postings(employee, form, status=200, editing=None):
-    rows = db.session.scalars(
-        select(Posting).where(Posting.employee_id == employee.id).order_by(Posting.start_date.desc(), Posting.id)
-    ).all()
     return render_employee(
         "employees/postings.html",
         employee,
         "postings",
         status=status,
         form=form,
-        rows=rows,
         editing=editing,
-        show=show,
     )

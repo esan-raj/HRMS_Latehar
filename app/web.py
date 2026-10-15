@@ -6,16 +6,8 @@ from app.models import Employee, Posting
 
 SECTIONS = (
     ("personal", "Personal Details", "employees.personal"),
-    ("address", "Address", "employees.address"),
-    ("education", "Education", "employees.education_list"),
-    ("training", "Training History", "employees.training_list"),
-    ("appointments", "Job Appointments", "employees.appointments_list"),
-    ("employment", "Employment Details", "employees.employment"),
-    ("postings", "Current Posting and Posting History", "employees.postings"),
-    ("promotions", "Promotions", "employees.promotions_list"),
-    ("allegations", "Allegations Status", "employees.allegations_list"),
-    ("leave", "Leave Details", "employees.leave_list"),
-    ("dacp", "DACP Details", "employees.dacp_list"),
+    ("employment", "Employment", "employees.employment"),
+    ("postings", "Current Posting", "employees.postings"),
 )
 
 

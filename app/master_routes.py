@@ -20,9 +20,6 @@ SPECS = {
         "entity": "employment_type",
         "facility": False,
     },
-    "qualifications": {"title": "Qualifications", "singular": "qualification", "entity": "qualification", "facility": False},
-    "training-types": {"title": "Training types", "singular": "training type", "entity": "training_type", "facility": False},
-    "leave-types": {"title": "Leave types", "singular": "leave type", "entity": "leave_type", "facility": False},
 }
 
 

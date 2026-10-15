@@ -1,29 +1,24 @@
+import re
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.audit import column_snapshot, record_audit
 from app.domain import FieldError, StaleEditError
 from app.extensions import db
 from app.models import (
     Address,
-    Allegation,
-    DacpDetail,
     Department,
     Designation,
-    EducationRecord,
     Employee,
+    EmployeeCodeCounter,
     EmploymentDetail,
     EmploymentType,
     Facility,
     JobAppointment,
-    LeaveRecord,
-    LeaveType,
     Posting,
     Promotion,
-    Qualification,
-    TrainingRecord,
-    TrainingType,
 )
 from app.persistence import apply_versioned_update, commit_or_conflict, new_id, reload_locked
 
@@ -49,21 +44,121 @@ EMPLOYMENT_FIELDS = (
 POSTING_FIELDS = ("facility_id", "designation_id", "start_date", "end_date", "order_reference", "remarks")
 
 
+def next_employee_code() -> str:
+    """Preview the next EMP-0001 style code without reserving it."""
+    last = _counter_value()
+    return _format_available_code(last)
+
+
+def allocate_employee_code() -> str:
+    """Reserve the next code under a row lock.
+
+    The unique constraint on employee_code still rejects a manual duplicate.
+    A rolled-back insert returns the reserved number with the transaction.
+    """
+    _ensure_counter()
+    counter = db.session.scalar(
+        select(EmployeeCodeCounter).where(EmployeeCodeCounter.id == 1).with_for_update()
+    )
+    if counter.last_value == 0:
+        highest = _highest_assigned_number()
+        if highest > counter.last_value:
+            counter.last_value = highest
+    while True:
+        counter.last_value += 1
+        code = f"EMP-{counter.last_value:04d}"
+        if not _code_in_use(code):
+            db.session.flush()
+            return code
+
+
+def _counter_value() -> int:
+    _ensure_counter()
+    last = db.session.scalar(select(EmployeeCodeCounter.last_value).where(EmployeeCodeCounter.id == 1)) or 0
+    if last == 0:
+        return _highest_assigned_number()
+    return last
+
+
+def _format_available_code(last: int) -> str:
+    candidate = last + 1
+    while _code_in_use(f"EMP-{candidate:04d}"):
+        candidate += 1
+    return f"EMP-{candidate:04d}"
+
+
+def _code_in_use(code: str) -> bool:
+    return (
+        db.session.scalar(select(Employee.id).where(func.lower(Employee.employee_code) == code.lower()).limit(1))
+        is not None
+    )
+
+
+def _ensure_counter() -> None:
+    if db.session.get(EmployeeCodeCounter, 1) is not None:
+        return
+    try:
+        with db.session.begin_nested():
+            db.session.add(EmployeeCodeCounter(id=1, last_value=0))
+            db.session.flush()
+    except IntegrityError:
+        return
+
+
+def _highest_assigned_number() -> int:
+    """Catch up an unused counter. Normal allocation does not call this."""
+    if db.session.scalar(select(Employee.id).limit(1)) is None:
+        return 0
+    if db.engine.dialect.name == "postgresql":
+        value = db.session.scalar(
+            text(
+                "SELECT COALESCE(MAX((regexp_match(employee_code, '^EMP-([0-9]+)$'))[1]::integer), 0) "
+                "FROM hrms.employees"
+            )
+        )
+        return int(value or 0)
+    highest = 0
+    pattern = re.compile(r"^EMP-(\d+)$", re.IGNORECASE)
+    for code in db.session.scalars(select(Employee.employee_code)):
+        match = pattern.fullmatch(code or "")
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest
+
+
 def create_employee(actor_id, values: dict) -> Employee:
-    _reject_duplicate_code(values["employee_code"], None)
     values = dict(values)
     values.setdefault("custom_data", {})
     _require_employee_basics(values)
-    employee = Employee(id=new_id(), version=1, **values)
-    db.session.add(employee)
-    record_audit(actor_id, "employee", employee.id, "create", {}, column_snapshot(employee, EMPLOYEE_FIELDS))
-    commit_or_conflict("employee_code")
-    return employee
+    supplied = str(values.get("employee_code") or "").strip().upper()
+    attempts = 1 if supplied else 3
+    last_error = None
+    for _attempt in range(attempts):
+        current = dict(values)
+        if supplied:
+            current["employee_code"] = supplied
+            _reject_duplicate_code(supplied, None)
+        else:
+            current["employee_code"] = allocate_employee_code()
+        employee = Employee(id=new_id(), version=1, **current)
+        db.session.add(employee)
+        record_audit(actor_id, "employee", employee.id, "create", {}, column_snapshot(employee, EMPLOYEE_FIELDS))
+        try:
+            commit_or_conflict("employee_code")
+        except FieldError as exc:
+            last_error = exc
+            if supplied or exc.field != "employee_code":
+                raise
+            continue
+        return employee
+    raise last_error
 
 
 def update_employee(actor_id, employee_id, submitted_version: int, values: dict):
     employee = reload_locked(Employee, employee_id)
     _require_employee_basics(values)
+    values = dict(values)
+    values["employee_code"] = employee.employee_code
     _reject_duplicate_code(values["employee_code"], employee.id)
     before, after, changed = apply_versioned_update(employee, submitted_version, values, EMPLOYEE_FIELDS)
     if not changed:
@@ -293,9 +388,6 @@ MASTER_REFERENCES = {
         (JobAppointment, "employment_type_id", "job appointments"),
         (EmploymentDetail, "employment_type_id", "employment records"),
     ),
-    "qualifications": ((EducationRecord, "qualification_id", "education records"),),
-    "training-types": ((TrainingRecord, "training_type_id", "training records"),),
-    "leave-types": ((LeaveRecord, "leave_type_id", "leave records"),),
 }
 
 MASTER_MODELS = {
@@ -303,9 +395,6 @@ MASTER_MODELS = {
     "designations": Designation,
     "facilities": Facility,
     "employment-types": EmploymentType,
-    "qualifications": Qualification,
-    "training-types": TrainingType,
-    "leave-types": LeaveType,
 }
 
 

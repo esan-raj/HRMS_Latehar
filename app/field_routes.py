@@ -9,7 +9,9 @@ from app.fielddefs import (
     delete_custom_field,
     delete_option,
     ensure_system_fields,
+    load_dropdown_options,
     missing_value_count,
+    missing_value_counts,
     move_field,
     ordered_fields,
     retire_option,
@@ -149,12 +151,13 @@ def delete_field_option(field_id, option_id):
 
 def _index(form, status):
     fields = ordered_fields()
-    counts = {field.id: missing_value_count(field) for field in fields if field.required and not field.is_archived}
+    counts = missing_value_counts(fields)
     body = render_template("fields/list.html", form=form, fields=fields, counts=counts)
     return body, status
 
 
 def _edit(field, form, status):
+    load_dropdown_options([field])
     body = render_template("fields/form.html", form=form, field=field, count=stored_value_count(field))
     return body, status
 

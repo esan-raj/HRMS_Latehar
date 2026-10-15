@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from sqlalchemy import event, func, select
@@ -7,13 +8,11 @@ from app.models import (
     AuditEvent,
     Department,
     Designation,
-    EducationRecord,
     Employee,
     EmploymentDetail,
     EmploymentType,
     Facility,
     Posting,
-    Qualification,
 )
 from app.persistence import new_id
 
@@ -57,7 +56,8 @@ def create_employee(admin, **overrides):
     data = payload(version="0", facility_id=str(facility.id), **overrides)
     response = admin.post("/employees/new", data=data)
     assert response.status_code == 302, response.get_data(as_text=True)
-    return db.session.scalar(select(Employee).where(Employee.employee_code == data["employee_code"].upper()))
+    employee_id = response.headers["Location"].rstrip("/").split("/")[-2]
+    return db.session.get(Employee, uuid.UUID(employee_id))
 
 
 def test_employee_form_rejects_weak_name_and_phone(admin):
@@ -119,19 +119,52 @@ def test_employee_crud_deactivation_and_phone_string(admin):
     assert missing.status_code == 404
 
 
-def test_duplicate_employee_code_is_rejected(admin):
-    create_employee(admin, employee_code="EMP-2001")
-    before = db.session.scalar(select(func.count()).select_from(AuditEvent))
-    facility = db.session.scalar(select(Facility).limit(1))
-    duplicate = admin.post(
-        "/employees/new",
-        data=payload(employee_code="emp-2001", full_name="Other Person", version="0", facility_id=str(facility.id)),
+def test_generated_code_does_not_read_every_employee_code(admin, app):
+    from sqlalchemy import event
+
+    create_employee(admin, full_name="First Code")
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.split()).lower())
+
+    event.listen(db.engine, "before_cursor_execute", capture)
+    try:
+        with app.test_request_context():
+            from app.hr import allocate_employee_code
+
+            reserved = allocate_employee_code()
+            db.session.rollback()
+    finally:
+        event.remove(db.engine, "before_cursor_execute", capture)
+    assert reserved == "EMP-0002"
+    assert not any(
+        statement.replace("main.", "").replace("hrms.", "").startswith("select employees.employee_code")
+        and " where " not in statement
+        for statement in statements
     )
-    assert duplicate.status_code == 400
-    assert b"already exists" in duplicate.data
-    assert b"Other Person" in duplicate.data
-    assert db.session.scalar(select(func.count()).select_from(Employee)) == 1
-    assert db.session.scalar(select(func.count()).select_from(AuditEvent)) == before
+
+
+def test_employee_code_is_generated_and_cannot_be_changed(admin):
+    page = admin.get("/employees/new")
+    assert b"EMP-0001" in page.data
+    assert b'name="employee_code"' not in page.data
+    first = create_employee(admin, full_name="First Person")
+    second = create_employee(admin, full_name="Other Person", employee_code="EMP-9999")
+    assert first.employee_code == "EMP-0001"
+    assert second.employee_code == "EMP-0002"
+    changed = admin.post(
+        f"/employees/{first.id}/personal",
+        data=payload(
+            employee_code="EMP-9999",
+            full_name="First Person",
+            version=str(first.version),
+            facility_id=str(first.facility_id),
+        ),
+    )
+    assert changed.status_code == 302
+    first = db.session.get(Employee, first.id)
+    assert first.employee_code == "EMP-0001"
 
 
 def test_stale_personal_edit_does_not_overwrite(admin):
@@ -156,7 +189,7 @@ def test_audit_records_create_update_and_deactivate(admin, app):
     created = db.session.scalar(select(AuditEvent).where(AuditEvent.action == "create", AuditEvent.entity_id == employee.id))
     assert created.actor_id == __import__("uuid").UUID(app.config["ADMIN_USER_ID"])
     assert created.entity_type == "employee"
-    assert created.changes["employee_code"]["after"] == "EMP-AUD1"
+    assert created.changes["employee_code"]["after"] == employee.employee_code
     assert created.changes["phone"]["after"] == "9867543210"
     assert "password" not in created.changes
     admin.post(
@@ -175,47 +208,26 @@ def test_audit_records_create_update_and_deactivate(admin, app):
     assert deactivated.changes["is_active"] == {"before": True, "after": False}
 
 
-def test_education_record_crud(admin):
+def test_profile_keeps_personal_employment_and_current_posting(admin):
     employee = create_employee(admin)
-    qualification = Qualification(id=new_id(), name="MBBS", is_active=True, version=1)
-    db.session.add(qualification)
-    db.session.commit()
-    created = admin.post(
-        f"/employees/{employee.id}/education",
-        data={
-            "qualification_id": str(qualification.id),
-            "specialization": "Medicine",
-            "institution": "Northview Medical College",
-            "passing_year": "2011",
-            "version": "0",
-        },
-    )
-    assert created.status_code == 302
-    record = db.session.scalar(select(EducationRecord))
-    edited = admin.post(
-        f"/employees/{employee.id}/education/{record.id}/edit",
-        data={
-            "qualification_id": str(qualification.id),
-            "specialization": "Community medicine",
-            "institution": "Northview Medical College",
-            "passing_year": "2011",
-            "version": str(record.version),
-        },
-    )
-    assert edited.status_code == 302
-    record = db.session.get(EducationRecord, record.id)
-    assert record.specialization == "Community medicine"
-    confirm = admin.get(f"/employees/{employee.id}/education/{record.id}/delete")
-    assert confirm.status_code == 200
-    assert db.session.get(EducationRecord, record.id) is not None
-    removed = admin.post(
-        f"/employees/{employee.id}/education/{record.id}/delete",
-        data={"version": str(record.version)},
-    )
-    assert removed.status_code == 302
-    assert db.session.get(EducationRecord, record.id) is None
-    audit = db.session.scalar(select(AuditEvent).where(AuditEvent.entity_type == "education", AuditEvent.action == "delete"))
-    assert audit is not None
+    page = admin.get(f"/employees/{employee.id}/personal")
+    body = page.get_data(as_text=True)
+    assert "Personal Details" in body
+    assert "Employment" in body
+    assert "Current Posting" in body
+    for removed in ("Address", "Education", "Training History", "Promotions", "Allegations", "Leave Details", "DACP"):
+        assert removed not in body
+    assert admin.get(f"/employees/{employee.id}/education").status_code == 404
+    assert admin.get(f"/employees/{employee.id}/address").status_code == 404
+    assert admin.get("/masters/qualifications").status_code == 404
+    assert admin.get("/masters/training-types").status_code == 404
+    assert admin.get("/masters/leave-types").status_code == 404
+    employment = admin.get(f"/employees/{employee.id}/employment")
+    employment_body = employment.get_data(as_text=True)
+    assert employment.status_code == 200
+    assert "Employment details" in employment_body
+    assert "Job appointments" in employment_body
+    assert "Appointment reference" in employment_body
 
 
 def test_referenced_master_cannot_be_deleted(admin):
@@ -270,19 +282,21 @@ def test_single_open_posting_and_date_integrity(admin):
 
     first = admin.post(f"/employees/{employee.id}/postings", data=posting(facility.id, "2020-01-01", ""))
     assert first.status_code == 302
-    second = admin.post(f"/employees/{employee.id}/postings", data=posting(other.id, "2021-01-01", ""))
-    assert second.status_code == 400
-    assert b"already has an open posting" in second.data
-    overlap = admin.post(f"/employees/{employee.id}/postings", data=posting(other.id, "2019-01-01", "2020-06-01"))
-    assert overlap.status_code == 400
-    assert b"overlaps" in overlap.data
-    backwards = admin.post(f"/employees/{employee.id}/postings", data=posting(other.id, "2018-05-02", "2018-05-01"))
-    assert backwards.status_code == 400
-    earlier = admin.post(f"/employees/{employee.id}/postings", data=posting(other.id, "2018-01-01", "2019-12-31"))
-    assert earlier.status_code == 302
+    page = admin.get(f"/employees/{employee.id}/postings")
+    assert b"Current posting" in page.data
+    assert b"Posting History" not in page.data
+    assert b'name="end_date"' not in page.data
+    current = db.session.scalar(select(Posting).where(Posting.end_date.is_(None)))
+    updated = admin.post(
+        f"/employees/{employee.id}/postings",
+        data=posting(other.id, "2021-01-01", "2022-01-01", version=str(current.version)),
+    )
+    assert updated.status_code == 302
     open_rows = db.session.scalars(select(Posting).where(Posting.end_date.is_(None))).all()
     assert len(open_rows) == 1
-    assert open_rows[0].start_date == date(2020, 1, 1)
+    assert open_rows[0].facility_id == other.id
+    assert open_rows[0].end_date is None
+    assert open_rows[0].start_date == date(2021, 1, 1)
 
 
 def test_search_filter_sort_and_pagination(admin):
@@ -309,8 +323,8 @@ def test_search_filter_sort_and_pagination(admin):
 
     search = admin.get("/employees?q=person+01")
     assert search.status_code == 200
-    assert b"EMP-0001" in search.data
-    assert b"EMP-0003" not in search.data
+    assert b"Person 01" in search.data
+    assert b"Person 03" not in search.data
     filtered = admin.get(f"/employees?designation_id={officer.id}")
     assert b"EMP-0001" in filtered.data
     assert b"EMP-0002" not in filtered.data

@@ -15,10 +15,7 @@
           ('departments', 'Departments'),
           ('designations', 'Designations'),
           ('facilities', 'Facilities'),
-          ('employment-types', 'Employment types'),
-          ('qualifications', 'Qualifications'),
-          ('training-types', 'Training types'),
-          ('leave-types', 'Leave types')
+          ('employment-types', 'Employment types')
         ] %}
           <a href="{{ url_for('masters.index', slug=item) }}" {% if slug == item %}aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}

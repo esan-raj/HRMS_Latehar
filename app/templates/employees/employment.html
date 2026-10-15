@@ -1,13 +1,54 @@
 {% extends "employees/profile_base.html" %}
 {% from "macros.html" import render_field %}
-{% block title %}Employment details · {{ employee.full_name }}{% endblock %}
+{% block title %}Employment · {{ employee.full_name }}{% endblock %}
 {% block section %}
   <form class="card" method="post" style="max-width: 40rem;">
+    <h2 class="h5">Employment details</h2>
     {{ form.hidden_tag() }}
     {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
     {% for field in form if field.widget.input_type != 'hidden' %}
       {{ render_field(field) }}
     {% endfor %}
     <button class="btn btn-primary" type="submit">Save employment details</button>
+  </form>
+  <div class="card">
+    <h2 class="h5">Job appointments</h2>
+    {% if appointment_rows %}
+      <div class="table-wrap">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              {% for header, getter in appointment_spec.columns %}<th scope="col">{{ header }}</th>{% endfor %}
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in appointment_rows %}
+              <tr>
+                {% for header, getter in appointment_spec.columns %}<td>{{ getter(row) }}</td>{% endfor %}
+                <td class="actions">
+                  <a href="{{ url_for('employees.appointments_edit', employee_id=employee.id, record_id=row.id) }}">Edit</a>
+                  <a href="{{ url_for('employees.appointments_delete', employee_id=employee.id, record_id=row.id) }}">Delete</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="mb-0">{{ appointment_spec.empty }}</p>
+    {% endif %}
+  </div>
+  <form class="card" method="post" action="{% if appointment_editing %}{{ url_for('employees.appointments_edit', employee_id=employee.id, record_id=appointment_editing.id) }}{% else %}{{ url_for('employees.appointments_list', employee_id=employee.id) }}{% endif %}" style="max-width: 42rem;">
+    <h2 class="h5">{% if appointment_editing %}Edit job appointment{% else %}Add job appointment{% endif %}</h2>
+    {{ appointment_form.hidden_tag() }}
+    {% if appointment_form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
+    {% for field in appointment_form if field.widget.input_type != 'hidden' %}
+      {{ render_field(field) }}
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Save job appointment</button>
+    {% if appointment_editing %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.employment', employee_id=employee.id) }}">Cancel</a>
+    {% endif %}
   </form>
 {% endblock %}

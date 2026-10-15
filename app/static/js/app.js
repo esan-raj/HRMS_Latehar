@@ -37,6 +37,17 @@ document.addEventListener("submit", function (event) {
     input.setCustomValidity(message);
     if (message) blocked = true;
   });
+  form.querySelectorAll("[data-aadhaar]").forEach(function (input) {
+    var value = (input.value || "").trim();
+    var message = "";
+    if (value && !/^[0-9 ]+$/.test(value)) {
+      message = "Enter only numbers.";
+    } else if (value && value.replace(/ /g, "").length !== 12) {
+      message = "Enter a 12-digit Aadhaar number.";
+    }
+    input.setCustomValidity(message);
+    if (message) blocked = true;
+  });
   form.querySelectorAll("[data-must-letter]").forEach(function (input) {
     if (input.value && !/\p{L}/u.test(input.value)) {
       input.setCustomValidity("Enter a name that includes letters.");

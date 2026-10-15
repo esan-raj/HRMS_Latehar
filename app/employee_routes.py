@@ -1,7 +1,7 @@
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 from sqlalchemy import select
 
-from app.choices import active_choices, all_choices, facility_label
+from app.choices import active_choices, facility_label, register_filter_choices
 from app.directory import employee_directory
 from app.domain import FieldError, StaleEditError, StaleFormError
 from app.extensions import db
@@ -9,13 +9,13 @@ from app.fielddefs import (
     active_custom_fields,
     catalog_version,
     ensure_system_fields,
-    incomplete_employee_ids,
+    load_dropdown_options,
     ordered_fields,
     parse_custom_values,
 )
-from app.forms import AddressForm, EmploymentForm, PersonalForm
-from app.hr import create_employee, save_addresses, save_employment, set_employee_active, update_employee
-from app.models import Address, Department, Designation, EmploymentDetail, EmploymentType, Facility
+from app.forms import EmploymentForm, PersonalForm
+from app.hr import create_employee, next_employee_code, save_employment, set_employee_active, update_employee
+from app.models import Department, EmploymentDetail, EmploymentType, Facility
 from app.web import apply_field_error, get_employee, render_employee
 
 bp = Blueprint("employees", __name__, url_prefix="/employees")
@@ -23,7 +23,8 @@ bp = Blueprint("employees", __name__, url_prefix="/employees")
 
 @bp.route("/")
 def index():
-    page, filters, sort, direction, columns = employee_directory(request.args)
+    page, filters, sort, direction, columns, incomplete_count = employee_directory(request.args)
+    designations, facilities, employment_types = register_filter_choices()
     return render_template(
         "employees/list.html",
         page=page,
@@ -39,11 +40,11 @@ def index():
         incomplete=filters.get("incomplete", ""),
         filter_field=filters.get("filter_field", ""),
         filter_value=filters.get("filter_value", ""),
-        incomplete_count=len(incomplete_employee_ids()),
+        incomplete_count=incomplete_count,
         filterable_fields=_filterable_fields(),
-        designations=all_choices(Designation, blank="All designations"),
-        facilities=all_choices(Facility, label=facility_label, blank="All facilities"),
-        employment_types=all_choices(EmploymentType, blank="All employment types"),
+        designations=designations,
+        facilities=facilities,
+        employment_types=employment_types,
     )
 
 
@@ -60,6 +61,7 @@ def create():
             if custom_errors:
                 return _employee_form(form, None, custom_fields, custom_values, custom_errors, 400)
             values = form.values()
+            values.pop("employee_code", None)
             values["custom_data"] = custom_values
             employee = create_employee(g.actor_id, values)
         except StaleFormError as exc:
@@ -70,7 +72,7 @@ def create():
         except FieldError as exc:
             apply_field_error(form, exc)
             return _employee_form(form, None, custom_fields, custom_values, custom_errors, 400)
-        flash("Employee created.", "success")
+        flash(f"Employee {employee.employee_code} created.", "success")
         return redirect(url_for("employees.personal", employee_id=employee.id))
     status = 400 if request.method == "POST" else 200
     return _employee_form(form, None, custom_fields, custom_values, custom_errors, status)
@@ -129,39 +131,6 @@ def personal(employee_id):
     return _personal(employee, form, custom_fields, custom_values, custom_errors, status)
 
 
-@bp.route("/<uuid:employee_id>/address", methods=["GET", "POST"])
-def address(employee_id):
-    employee = get_employee(employee_id)
-    form = AddressForm()
-    rows = _addresses(employee.id)
-    if request.method == "GET":
-        _bind_address(form, rows)
-    if form.validate_on_submit():
-        try:
-            changed = save_addresses(
-                g.actor_id,
-                employee.id,
-                form.group("present"),
-                form.present_version.data,
-                form.group("permanent"),
-                form.permanent_version.data,
-            )
-        except FieldError as exc:
-            apply_field_error(form, exc)
-            return render_employee("employees/address.html", employee, "address", form=form, status=400)
-        except StaleEditError as exc:
-            db.session.rollback()
-            employee = get_employee(employee_id)
-            form = AddressForm()
-            _bind_address(form, _addresses(employee.id))
-            flash(exc.message, "warning")
-            return render_employee("employees/address.html", employee, "address", form=form, status=409)
-        flash("Address saved." if changed else "No changes to save.", "success" if changed else "info")
-        return redirect(url_for("employees.address", employee_id=employee.id))
-    status = 400 if request.method == "POST" else 200
-    return render_employee("employees/address.html", employee, "address", form=form, status=status)
-
-
 @bp.route("/<uuid:employee_id>/employment", methods=["GET", "POST"])
 def employment(employee_id):
     employee = get_employee(employee_id)
@@ -173,7 +142,7 @@ def employment(employee_id):
             _row, changed = save_employment(g.actor_id, employee.id, form.version.data, form.values())
         except FieldError as exc:
             apply_field_error(form, exc)
-            return render_employee("employees/employment.html", employee, "employment", form=form, status=400)
+            return _render_employment(employee, form, 400)
         except StaleEditError as exc:
             db.session.rollback()
             employee = get_employee(employee_id)
@@ -181,11 +150,11 @@ def employment(employee_id):
             form = EmploymentForm()
             _prepare_employment(form, detail, True)
             flash(exc.message, "warning")
-            return render_employee("employees/employment.html", employee, "employment", form=form, status=409)
+            return _render_employment(employee, form, 409)
         flash("Employment details saved." if changed else "No changes to save.", "success" if changed else "info")
         return redirect(url_for("employees.employment", employee_id=employee.id))
     status = 400 if request.method == "POST" else 200
-    return render_employee("employees/employment.html", employee, "employment", form=form, status=status)
+    return _render_employment(employee, form, status)
 
 
 @bp.route("/<uuid:employee_id>/deactivate", methods=["GET", "POST"])
@@ -253,7 +222,9 @@ def _prepare_employee_form(form, employee):
             form.version.data = 0
             form.is_active.data = True
         form.fields_version.data = catalog_version()
-    return active_custom_fields()
+    custom_fields = active_custom_fields()
+    load_dropdown_options(custom_fields)
+    return custom_fields
 
 
 def _check_form_version(form) -> None:
@@ -281,6 +252,7 @@ def _employee_form(form, employee, custom_fields, custom_values, custom_errors, 
             custom_values=custom_values,
             custom_errors=custom_errors,
             form_fields=_form_fields(),
+            next_code=next_employee_code(),
         ),
         status,
     )
@@ -314,23 +286,11 @@ def _filterable_fields():
     ]
 
 
-def _addresses(employee_id):
-    rows = db.session.scalars(select(Address).where(Address.employee_id == employee_id)).all()
-    return {row.address_type: row for row in rows}
+def _render_employment(employee, form, status, appointment_form=None, editing=None):
+    from app.record_routes import appointment_context
 
-
-def _bind_address(form, rows):
-    for prefix in ("present", "permanent"):
-        row = rows.get(prefix)
-        if row is None:
-            getattr(form, f"{prefix}_version").data = 0
-            continue
-        getattr(form, f"{prefix}_line1").data = row.line1
-        getattr(form, f"{prefix}_line2").data = row.line2
-        getattr(form, f"{prefix}_district").data = row.district
-        getattr(form, f"{prefix}_state").data = row.state
-        getattr(form, f"{prefix}_pin").data = row.pin_code
-        getattr(form, f"{prefix}_version").data = row.version
+    context = appointment_context(employee, appointment_form, editing)
+    return render_employee("employees/employment.html", employee, "employment", form=form, status=status, **context)
 
 
 def _employment(employee_id):

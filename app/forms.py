@@ -87,17 +87,6 @@ class VersionedForm(FlaskForm):
 
 
 class PersonalForm(VersionedForm):
-    employee_code = StringField(
-        "Employee code",
-        filters=[strip_upper],
-        validators=[DataRequired(), Length(max=32), valid_code],
-        render_kw={
-            "maxlength": "32",
-            "pattern": "[A-Za-z0-9][A-Za-z0-9._/-]{0,31}",
-            "title": "Use letters, numbers, and the characters . _ / -.",
-            "autocapitalize": "characters",
-        },
-    )
     full_name = StringField(
         "Name",
         filters=[strip],
@@ -138,7 +127,6 @@ class PersonalForm(VersionedForm):
 
     def values(self) -> dict:
         return {
-            "employee_code": self.employee_code.data,
             "full_name": self.full_name.data,
             "date_of_birth": self.date_of_birth.data,
             "gender": self.gender.data,

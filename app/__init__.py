@@ -10,7 +10,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from app.auth.cookies import clear_auth_cookies
 from app.auth.guards import register_guards
 from app.config import config_from_env
-from app.database import register_search_path
 from app.extensions import csrf, db, migrate
 
 
@@ -26,8 +25,12 @@ def create_app(config_class=None):
 
     migrate.init_app(app, db, directory=str(Path(__file__).resolve().parent.parent / "migrations"))
     csrf.init_app(app)
-    register_search_path()
     with app.app_context():
+        # SQLite has no schemas. Postgres keeps the hrms schema on every table name,
+        # so a pooled connection does not need SET search_path.
+        if db.engine.dialect.name == "sqlite":
+            db.engine.update_execution_options(schema_translate_map={"hrms": None})
+
         @event.listens_for(db.engine, "connect")
         def _sqlite_foreign_keys(dbapi_connection, _connection_record):
             if db.engine.dialect.name != "sqlite":
@@ -57,6 +60,12 @@ def create_app(config_class=None):
     register_commands(app)
     register_guards(app)
     _register_errors(app)
+
+    @app.teardown_request
+    def _drop_field_cache(_error):
+        from app.fielddefs import clear_request_field_cache
+
+        clear_request_field_cache()
 
     @app.context_processor
     def _field_rules():

@@ -330,6 +330,18 @@ class AuditEvent(UUIDPrimaryKey, db.Model):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
 
 
+class EmployeeCodeCounter(db.Model):
+    """One row that reserves the next EMP-0001 style code.
+
+    Allocation locks this row. Existing employee codes are not rewritten.
+    """
+
+    __tablename__ = "employee_code_counters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class LoginThrottle(db.Model):
     __tablename__ = "login_throttle"
 

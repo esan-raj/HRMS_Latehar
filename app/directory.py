@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, Numeric, String, cast, func, or_, select
+from sqlalchemy import Integer, Numeric, String, and_, case, cast, false, func, or_, select, true
 from sqlalchemy.orm import joinedload
 
 from app.extensions import db
@@ -7,9 +7,14 @@ from app.fielddefs import (
     SORTABLE_TYPES,
     display_custom,
     ensure_system_fields,
-    incomplete_employee_ids,
+    field_by_id,
+    aadhaar_digits,
+    is_aadhaar_field,
+    incomplete_predicate,
     json_text,
+    load_dropdown_options,
     register_fields,
+    remember_incomplete_count,
 )
 from app.models import Designation, Employee, EmploymentDetail, Facility, Posting
 
@@ -55,7 +60,7 @@ class DirectoryRow:
                 self.cells.append(_cell(employee, column))
 
 
-def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]]:
+def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn], int]:
     ensure_system_fields()
     columns = _register_columns()
     sortable = {column.key for column in columns if column.sortable}
@@ -103,14 +108,24 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
             )
         )
     incomplete = args.get("incomplete") == "1"
+    missing = incomplete_predicate("banner")
     if incomplete:
-        missing_ids = incomplete_employee_ids()
-        criteria.append(Employee.id.in_(missing_ids or [_EMPTY]))
+        narrowed = incomplete_predicate("filter")
+        criteria.append(narrowed if narrowed is not None else Employee.id.is_(None))
     custom_filter = _custom_filter(args.get("filter_field"), args.get("filter_value"))
     if custom_filter is not None:
         criteria.append(custom_filter)
 
-    total = db.session.scalar(select(func.count()).select_from(Employee).where(*criteria)) or 0
+    page_match = and_(*criteria) if criteria else true()
+    missing_match = missing if missing is not None else false()
+    total, incomplete_count = db.session.execute(
+        select(
+            func.coalesce(func.sum(case((page_match, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((missing_match, 1), else_=0)), 0),
+        ).select_from(Employee)
+    ).one()
+    total = int(total or 0)
+    remember_incomplete_count(int(incomplete_count or 0))
     pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
     page = min(page, pages)
     ordering = _ordering(sort, direction)
@@ -141,6 +156,7 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
         for detail in detail_rows:
             employments[detail.employee_id] = detail
     visible = [column for column in columns if column.key not in {"code", "status"}]
+    load_dropdown_options([field for field in register_fields() if field.field_type == "dropdown"])
     items = [
         DirectoryRow(employee, postings.get(employee.id), employments.get(employee.id), visible)
         for employee in employees
@@ -161,7 +177,7 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
     if args.get("filter_field") and args.get("filter_value"):
         filters["filter_field"] = str(args.get("filter_field"))[:40]
         filters["filter_value"] = str(args.get("filter_value"))[:100]
-    return Page(items, page, pages, total), filters, sort, direction, columns
+    return Page(items, page, pages, total), filters, sort, direction, columns, int(incomplete_count or 0)
 
 
 def dashboard_counts() -> dict:
@@ -203,7 +219,6 @@ def dashboard_counts() -> dict:
     }
 
 
-_EMPTY = __import__("uuid").UUID(int=0)
 _SYSTEM_SORT = {"full_name": "name", "phone": "phone", "facility_id": "facility"}
 
 
@@ -232,7 +247,7 @@ def _ordering(sort: str, direction: str):
             expression = Employee.full_name
         else:
             value = json_text(str(field.id), "sort")
-            if field.field_type == "integer":
+            if field.field_type == "integer" and not is_aadhaar_field(field):
                 expression = cast(value, Integer)
             elif field.field_type == "decimal":
                 expression = cast(value, Numeric(14, 4))
@@ -251,11 +266,14 @@ def _custom_filter(field_id, raw):
         parsed = uuid.UUID(str(field_id))
     except (TypeError, ValueError):
         return None
-    from app.models import EmployeeField
-
-    field = db.session.get(EmployeeField, parsed)
+    field = field_by_id(parsed)
     if field is None or field.is_archived or field.is_system or field.field_type not in FILTERABLE_TYPES:
         return None
+    if is_aadhaar_field(field):
+        digits = aadhaar_digits(text)
+        if not digits.isdigit():
+            return Employee.id.is_(None)
+        return cast(json_text(str(field.id), "filter"), String) == digits
     if field.field_type == "integer" and not text.lstrip("+-").isdigit():
         return Employee.id.is_(None)
     if field.field_type == "yes_no" and text not in {"yes", "no"}:
@@ -275,13 +293,11 @@ def _custom_filter(field_id, raw):
 def _custom_field(sort: str):
     import uuid
 
-    from app.models import EmployeeField
-
     try:
         parsed = uuid.UUID(sort)
     except (TypeError, ValueError):
         return None
-    return db.session.get(EmployeeField, parsed)
+    return field_by_id(parsed)
 
 
 def _cell(employee, column: RegisterColumn) -> str:

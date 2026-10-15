@@ -10,18 +10,18 @@ This project did not have the Pratibimba HR source or schema available. The scre
 - Access only when the verified JWT subject equals `ADMIN_USER_ID`.
 - Dashboard counts from SQL aggregates.
 - Employee register with search, filters, pagination, and allowlisted sorting.
-- Employee profile sections, each saved on its own.
+- Employee profile sections for personal details, employment (including job appointments), and the current posting.
 - Administrator-managed employee fields. Name, facility, and mobile number cannot be removed or made optional. Other employee-level fields are defined without changing the database tables.
-- Master-data lists for departments, designations, facilities, employment types, qualifications, training types, and leave types.
+- Master-data lists for departments, designations, facilities, and employment types.
 - Deactivate employees and master records instead of deleting history.
 - Audit rows written in the same transaction as the change.
 
-There is no public registration, employee login, payroll, attendance, transfer allocation, notifications, or approval workflow. Allegations, leave, and DACP are recordkeeping only.
+There is no public registration, employee login, payroll, attendance, transfer allocation, notifications, or approval workflow.
 
 ## Stack
 
 - Python 3.12, Flask application factory, feature blueprints.
-- Jinja templates, Bootstrap 5.3.3 from the CDN, and a small script that copies a present address.
+- Jinja templates and Bootstrap 5.3.3 from the CDN.
 - PostgreSQL through SQLAlchemy and Alembic (Flask-Migrate).
 - Waitress as the production WSGI server.
 
@@ -35,12 +35,14 @@ There is no public registration, employee login, payroll, attendance, transfer a
 - Employee names must be 2 to 200 characters and include letters.
 - Every employee record needs a name, a facility, and a mobile number. Existing rows that are missing a mobile number or facility are kept and listed as incomplete. The application does not invent those values.
 - The employee facility is stored on the employee. Posting history keeps its own facility. The first migration copies the open posting's facility onto an employee only when that employee does not already have one.
-- DACP stores a stage or level as text. The application does not calculate eligibility.
+- The current posting is the open posting. Older posting rows are not edited from the profile.
 - Inactive master records stay visible on old rows and are omitted from dropdowns for new selections.
 - Employee removal is deactivation. There is no permanent delete.
 - Optimistic locking uses a hidden `version` field. A stale save returns the latest stored values and does not overwrite them.
 
 ## Employee fields
+
+New employees receive the next code in the form `EMP-0001`. The code is not typed in, and it cannot be changed later.
 
 Name, facility, and mobile number are fixed columns. They always appear on the employee form and cannot be archived, deleted, or made optional. Facility choices come from the facility master. Use **Facilities** to add one, then select it on the employee.
 
@@ -134,9 +136,9 @@ Use a direct Postgres connection on port 5432 for a long-running Flask process:
 
 `postgresql://hrms_app:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require`
 
-Hosts that cannot reach the direct IPv6 address can use the shared session pooler, still on port 5432. The username is then `hrms_app.PROJECT_REF`. Do not use port 6543. The transaction pooler does not support the prepared statements and `search_path` setting this application uses. A URL on port 6543 is rejected at startup.
+Hosts that cannot reach the direct IPv6 address can use the shared session pooler, still on port 5432. The username is then `hrms_app.PROJECT_REF`. Do not use port 6543. A URL on port 6543 is rejected at startup.
 
-Non-local Postgres URLs get `sslmode=require` when it is missing. The pool uses `pool_pre_ping`, a default size of 5, overflow of 2, and a recycle time of 240 seconds. Each transaction sets `search_path` to `hrms, public`.
+Non-local Postgres URLs get `sslmode=require` when it is missing. The pool uses `pool_pre_ping`, a default size of 5, overflow of 2, and a recycle time of 240 seconds. SQL names the `hrms` schema on each table, so a request does not send `SET search_path`. The connection still starts with `search_path=hrms,public`; correctness does not depend on that session setting surviving the pooler.
 
 ### Private schema
 

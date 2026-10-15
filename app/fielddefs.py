@@ -3,8 +3,10 @@ import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import String, bindparam, cast, func, select
-from sqlalchemy.orm import Session
+from flask import g, has_request_context
+from sqlalchemy import String, and_, bindparam, case, cast, event, false, func, or_, select, update
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Session, selectinload
 
 from app.audit import column_snapshot, record_audit
 from app.domain import FieldError
@@ -83,6 +85,7 @@ FIELD_SNAPSHOT = (
 )
 KEY_RE = re.compile(r"^cf_[0-9a-f]{32}$")
 SHORT_LIMIT = 200
+_AADHAAR_LABEL = re.compile(r"\baadhaa?r\b", re.IGNORECASE)
 LONG_LIMIT = 4000
 _PREVIOUS_PHONE_HELP = {
     "7 to 20 characters: digits, spaces, and + ( ) . - . Stored as text, so leading zeros are kept.",
@@ -94,43 +97,136 @@ def session_or_default(session: Session | None) -> Session:
     return session if session is not None else db.session
 
 
+def clear_request_field_cache() -> None:
+    """Drop field metadata cached for the current request only."""
+    if not has_request_context():
+        return
+    g.pop("_hrms_fields", None)
+    g.pop("_hrms_catalog", None)
+    g.pop("_hrms_incomplete_ids", None)
+    g.pop("_hrms_incomplete_count", None)
+
+
+def _cacheable(session: Session) -> bool:
+    return has_request_context() and session is db.session
+
+
+def _query_fields(session: Session) -> list[EmployeeField]:
+    return list(
+        session.scalars(select(EmployeeField).order_by(EmployeeField.sort_order, EmployeeField.label))
+    )
+
+
+def load_dropdown_options(fields: list[EmployeeField]) -> None:
+    """Load dropdown choices for these fields in one query."""
+    pending = [
+        field
+        for field in fields
+        if field.field_type == "dropdown" and "options" in sa_inspect(field).unloaded
+    ]
+    if not pending:
+        return
+    db.session.execute(
+        select(EmployeeField)
+        .where(EmployeeField.id.in_([field.id for field in pending]))
+        .options(selectinload(EmployeeField.options))
+        .execution_options(populate_existing=True)
+    )
+
+
+def _remember_fields(session: Session, catalog: FieldCatalog, fields: list[EmployeeField]) -> None:
+    if not _cacheable(session):
+        return
+    g._hrms_catalog = catalog
+    g._hrms_fields = sorted(fields, key=lambda field: (field.sort_order, field.label))
+
+
+@event.listens_for(Session, "after_commit")
+def _drop_field_cache_after_commit(_session) -> None:
+    clear_request_field_cache()
+
+
+@event.listens_for(Session, "after_rollback")
+def _drop_field_cache_after_rollback(_session) -> None:
+    clear_request_field_cache()
+
+
 def ensure_system_fields(session: Session | None = None, commit: bool = True) -> FieldCatalog:
     session = session_or_default(session)
+    if _cacheable(session) and getattr(g, "_hrms_fields", None) is not None and getattr(g, "_hrms_catalog", None) is not None:
+        return g._hrms_catalog
     catalog = session.get(FieldCatalog, 1)
     created = catalog is None
     if catalog is None:
         catalog = FieldCatalog(id=1, version=1)
         session.add(catalog)
+    fields = _query_fields(session)
+    by_key = {field.field_key: field for field in fields}
     changed = False
     for spec in SYSTEM_FIELDS:
-        existing = session.scalar(select(EmployeeField).where(EmployeeField.field_key == spec["field_key"]))
+        existing = by_key.get(spec["field_key"])
         if existing is not None:
             if spec["field_key"] == "phone" and existing.help_text in _PREVIOUS_PHONE_HELP:
                 existing.help_text = spec["help_text"]
                 changed = True
             continue
         created = True
-        session.add(
-            EmployeeField(
-                id=new_id(),
-                version=1,
-                required=True,
-                is_system=True,
-                is_archived=False,
-                **spec,
-            )
+        row = EmployeeField(
+            id=new_id(),
+            version=1,
+            required=True,
+            is_system=True,
+            is_archived=False,
+            **spec,
         )
+        session.add(row)
+        fields.append(row)
+        by_key[row.field_key] = row
     if created or changed:
         session.flush()
         if commit:
             session.commit()
+            return catalog
+    _remember_fields(session, catalog, fields)
     return catalog
+
+
+def is_aadhaar_field(field) -> bool:
+    return bool(_AADHAAR_LABEL.search(getattr(field, "label", "") or ""))
+
+
+def aadhaar_digits(value) -> str:
+    return re.sub(r"\D", "", "" if value is None else str(value))
+
+
+def aadhaar_problem(value) -> str | None:
+    """Return an error unless the value is 12 digits, with optional spaces."""
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"[0-9 ]+", text):
+        return "Enter only numbers."
+    if len(text.replace(" ", "")) != 12:
+        return "Enter a 12-digit Aadhaar number."
+    return None
 
 
 def field_input_rules(field: EmployeeField) -> dict:
     """HTML constraints that match the server checks for one custom field."""
     attrs = {}
     hint = ""
+    if is_aadhaar_field(field):
+        if field.required:
+            attrs["required"] = "required"
+            attrs["aria-required"] = "true"
+        attrs["inputmode"] = "numeric"
+        attrs["maxlength"] = "20"
+        attrs["data-aadhaar"] = "1"
+        attrs["autocomplete"] = "off"
+        attrs["title"] = "Enter a 12-digit number. Spaces are allowed."
+        hint = "12 digits. Spaces are allowed."
+        placeholder = "1234 5678 9012"
+        return {"attrs": attrs, "hint": hint, "placeholder": placeholder}
     if field.required:
         attrs["required"] = "required"
         attrs["aria-required"] = "true"
@@ -161,12 +257,28 @@ def field_input_rules(field: EmployeeField) -> dict:
 
 
 def catalog_version(session: Session | None = None) -> int:
-    catalog = ensure_system_fields(session)
-    return catalog.version
+    session = session_or_default(session)
+    if _cacheable(session) and getattr(g, "_hrms_catalog", None) is not None:
+        return g._hrms_catalog.version
+    return ensure_system_fields(session, commit=session is db.session).version
 
 
 def ordered_fields(session: Session | None = None, include_archived: bool = True) -> list[EmployeeField]:
     session = session_or_default(session)
+    if _cacheable(session):
+        fields = getattr(g, "_hrms_fields", None)
+        if fields is None:
+            ensure_system_fields(session)
+            fields = getattr(g, "_hrms_fields", None)
+        if fields is None:
+            fields = _query_fields(session)
+            catalog = session.get(FieldCatalog, 1)
+            if catalog is not None:
+                _remember_fields(session, catalog, fields)
+            else:
+                fields = sorted(fields, key=lambda field: (field.sort_order, field.label))
+        rows = fields if include_archived else [field for field in fields if not field.is_archived]
+        return sorted(rows, key=lambda field: (field.sort_order, field.label))
     statement = select(EmployeeField).order_by(EmployeeField.sort_order, EmployeeField.label)
     if not include_archived:
         statement = statement.where(EmployeeField.is_archived.is_(False))
@@ -187,6 +299,17 @@ def register_fields(session: Session | None = None) -> list[EmployeeField]:
         for field in ordered_fields(session, include_archived=False)
         if field.show_in_register
     ]
+
+
+def field_by_id(field_id, session: Session | None = None) -> EmployeeField | None:
+    """Return one field from the request catalog when that catalog is already loaded."""
+    session = session_or_default(session)
+    if _cacheable(session):
+        for field in ordered_fields(session, include_archived=True):
+            if field.id == field_id:
+                return field
+        return None
+    return session.get(EmployeeField, field_id)
 
 
 def create_custom_field(actor_id, values: dict, option_labels: list[str]) -> EmployeeField:
@@ -308,6 +431,21 @@ def set_archived(actor_id, field_id, archived: bool) -> EmployeeField:
     return field
 
 
+def _remove_custom_key(key: str) -> None:
+    """Remove one custom-data key in SQL. Empty values are removed and not counted."""
+    if db.engine.dialect.name == "postgresql":
+        has_key = func.jsonb_exists(Employee.custom_data, bindparam("drop_key", key))
+        stripped = Employee.custom_data.op("-")(bindparam("drop_key_value", key))
+        db.session.execute(update(Employee).where(has_key).values(custom_data=stripped))
+        return
+    path_where = bindparam("drop_path_where", f"$.{key}")
+    path_set = bindparam("drop_path_set", f"$.{key}")
+    present = func.json_extract(Employee.custom_data, path_where).is_not(None)
+    db.session.execute(
+        update(Employee).where(present).values(custom_data=func.json_remove(Employee.custom_data, path_set))
+    )
+
+
 def delete_custom_field(actor_id, field_id, submitted_version: int, confirmed_label: str) -> int:
     field = reload_locked(EmployeeField, field_id)
     if field.is_system:
@@ -322,15 +460,8 @@ def delete_custom_field(actor_id, field_id, submitted_version: int, confirmed_la
         db.session.rollback()
         raise FieldError("confirm_label", "Type the field label exactly to confirm deletion.")
     key = str(field.id)
-    affected = 0
-    employees = list(db.session.scalars(select(Employee)))
-    for employee in employees:
-        data = dict(employee.custom_data or {})
-        if key in data and data[key] not in (None, ""):
-            affected += 1
-        if key in data:
-            data.pop(key, None)
-            employee.custom_data = data
+    affected = stored_value_count(field)
+    _remove_custom_key(key)
     label = field.label
     field_key = field.field_key
     db.session.delete(field)
@@ -415,31 +546,43 @@ def delete_option(actor_id, field_id, option_id) -> None:
     commit_or_conflict("option_label")
 
 
-def missing_value_count(field: EmployeeField) -> int:
+def _missing_clause(field: EmployeeField, suffix: str = "missing"):
+    if field.is_system and field.field_key == "phone":
+        return func.coalesce(Employee.phone, "") == ""
+    if field.is_system and field.field_key == "facility_id":
+        return Employee.facility_id.is_(None)
+    if field.is_system and field.field_key == "full_name":
+        return func.coalesce(Employee.full_name, "") == ""
     if field.is_system:
-        if field.field_key == "phone":
-            return db.session.scalar(
-                select(func.count()).select_from(Employee).where(func.coalesce(Employee.phone, "") == "")
-            ) or 0
-        if field.field_key == "facility_id":
-            return db.session.scalar(
-                select(func.count()).select_from(Employee).where(Employee.facility_id.is_(None))
-            ) or 0
-        if field.field_key == "full_name":
-            return db.session.scalar(
-                select(func.count()).select_from(Employee).where(func.coalesce(Employee.full_name, "") == "")
-            ) or 0
+        return false()
+    return _custom_missing_clause(field, suffix)
+
+
+def _count_matching(criterion):
+    return func.coalesce(func.sum(case((criterion, 1), else_=0)), 0)
+
+
+def missing_value_counts(fields: list[EmployeeField]) -> dict:
+    """Count missing required values for every requested field in one query."""
+    required = [field for field in fields if field.required and not field.is_archived]
+    if not required:
+        return {}
+    row = db.session.execute(
+        select(*[_count_matching(_missing_clause(field)) for field in required]).select_from(Employee)
+    ).one()
+    return {field.id: int(value or 0) for field, value in zip(required, row)}
+
+
+def missing_value_count(field: EmployeeField) -> int:
+    if not field.required or field.is_archived:
         return 0
-    return _custom_missing_count(field)
+    return missing_value_counts([field]).get(field.id, 0)
 
 
 def stored_value_count(field: EmployeeField) -> int:
-    key = str(field.id)
-    total = 0
-    for data in db.session.scalars(select(Employee.custom_data)):
-        if isinstance(data, dict) and data.get(key) not in (None, ""):
-            total += 1
-    return total
+    value = json_text(str(field.id), "stored")
+    present = and_(value.is_not(None), cast(value, String) != "")
+    return db.session.scalar(select(func.count()).select_from(Employee).where(present)) or 0
 
 
 def parse_custom_values(form_data, fields: list[EmployeeField], existing: dict | None) -> tuple[dict, dict]:
@@ -465,6 +608,11 @@ def parse_custom_values(form_data, fields: list[EmployeeField], existing: dict |
 def display_custom(field: EmployeeField, value) -> str:
     if value in (None, ""):
         return "—"
+    if is_aadhaar_field(field):
+        digits = re.sub(r"\D", "", str(value))
+        if len(digits) == 12:
+            return f"{digits[0:4]} {digits[4:8]} {digits[8:12]}"
+        return str(value)
     if field.field_type == "yes_no":
         return "Yes" if value == "yes" else "No"
     if field.field_type == "dropdown":
@@ -475,25 +623,51 @@ def display_custom(field: EmployeeField, value) -> str:
     return str(value)
 
 
-def incomplete_employee_ids() -> list:
-    ensure_system_fields()
-    criteria = []
-    for field in ordered_fields(include_archived=False):
-        if not field.required:
-            continue
-        if field.is_system and field.field_key == "phone":
-            criteria.append(func.coalesce(Employee.phone, "") == "")
-        elif field.is_system and field.field_key == "facility_id":
-            criteria.append(Employee.facility_id.is_(None))
-        elif field.is_system and field.field_key == "full_name":
-            criteria.append(func.coalesce(Employee.full_name, "") == "")
-        elif not field.is_system:
-            criteria.append(_custom_missing_clause(field))
-    if not criteria:
-        return []
-    from sqlalchemy import or_
+def incomplete_predicate(suffix: str = "missing"):
+    """Match an employee who is missing at least one active required value.
 
-    return list(db.session.scalars(select(Employee.id).where(or_(*criteria))))
+    Numeric 0 and yes/no False or "no" are present. Archived fields are ignored.
+    """
+    ensure_system_fields()
+    criteria = [
+        _missing_clause(field, suffix)
+        for field in ordered_fields(include_archived=False)
+        if field.required and not (field.is_system and field.field_key not in {"phone", "facility_id", "full_name"})
+    ]
+    if not criteria:
+        return None
+    return or_(*criteria)
+
+
+def incomplete_employee_count() -> int:
+    if has_request_context() and hasattr(g, "_hrms_incomplete_count"):
+        return g._hrms_incomplete_count
+    predicate = incomplete_predicate()
+    if predicate is None:
+        count = 0
+    else:
+        count = db.session.scalar(select(func.count()).select_from(Employee).where(predicate)) or 0
+    if has_request_context():
+        g._hrms_incomplete_count = count
+    return count
+
+
+def remember_incomplete_count(count: int) -> None:
+    if has_request_context():
+        g._hrms_incomplete_count = count
+
+
+def incomplete_employee_ids() -> list:
+    if has_request_context() and hasattr(g, "_hrms_incomplete_ids"):
+        return g._hrms_incomplete_ids
+    predicate = incomplete_predicate()
+    if predicate is None:
+        found = []
+    else:
+        found = list(db.session.scalars(select(Employee.id).where(predicate)))
+    if has_request_context():
+        g._hrms_incomplete_ids = found
+    return found
 
 
 def json_text(field_id: str, suffix: str = "value"):
@@ -502,7 +676,7 @@ def json_text(field_id: str, suffix: str = "value"):
     The field id is bound as a query parameter. It is not concatenated into the SQL text.
     """
     key = str(field_id)
-    token = key.replace("-", "")[:12]
+    token = key.replace("-", "")
     if db.engine.dialect.name == "postgresql":
         return Employee.custom_data.op("->>")(bindparam(f"jk_{suffix}_{token}", key))
     return func.json_extract(Employee.custom_data, bindparam(f"jp_{suffix}_{token}", f"$.{key}"))
@@ -542,11 +716,48 @@ def split_options(raw: str) -> list[str]:
     return labels
 
 
+def _whole_number(raw) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise ValueError("Enter a whole number.")
+    if isinstance(raw, int):
+        return raw
+    if not re.fullmatch(r"[+-]?[0-9]+", raw):
+        raise ValueError("Enter a whole number.")
+    return int(raw)
+
+
+def _decimal_number(raw) -> Decimal:
+    if isinstance(raw, bool):
+        raise ValueError("Enter a decimal with up to 12 digits and 4 decimal places.")
+    if isinstance(raw, Decimal):
+        text = format(raw, "f")
+    elif isinstance(raw, int):
+        text = str(raw)
+    elif isinstance(raw, str):
+        text = raw
+    else:
+        raise ValueError("Enter a decimal with up to 12 digits and 4 decimal places.")
+    if not re.fullmatch(r"[+-]?[0-9]{1,12}(\.[0-9]{1,4})?", text):
+        raise ValueError("Enter a decimal with up to 12 digits and 4 decimal places.")
+    try:
+        return Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError("Enter a decimal number.") from exc
+
+
 def _parse_value(field: EmployeeField, raw, existing):
-    if raw in (None, ""):
+    if isinstance(raw, str):
+        raw = raw.strip()
+    # 0 and False are stored values. Only a missing value or an empty string is blank.
+    if raw is None or raw == "":
         if field.required:
             raise ValueError("This field is required.")
         return None
+    if is_aadhaar_field(field):
+        message = aadhaar_problem(raw)
+        if message:
+            raise ValueError(message)
+        return aadhaar_digits(raw)
     if field.field_type == "short_text":
         if len(raw) > SHORT_LIMIT:
             raise ValueError(f"Use at most {SHORT_LIMIT} characters.")
@@ -556,19 +767,12 @@ def _parse_value(field: EmployeeField, raw, existing):
             raise ValueError(f"Use at most {LONG_LIMIT} characters.")
         return raw
     if field.field_type == "integer":
-        if not re.fullmatch(r"[+-]?[0-9]+", raw):
-            raise ValueError("Enter a whole number.")
-        number = int(raw)
+        number = _whole_number(raw)
         if number < -1_000_000_000 or number > 1_000_000_000:
             raise ValueError("Enter a whole number between -1000000000 and 1000000000.")
         return number
     if field.field_type == "decimal":
-        if not re.fullmatch(r"[+-]?[0-9]{1,12}(\.[0-9]{1,4})?", raw):
-            raise ValueError("Enter a decimal with up to 12 digits and 4 decimal places.")
-        try:
-            parsed = Decimal(raw)
-        except InvalidOperation as exc:
-            raise ValueError("Enter a decimal number.") from exc
+        parsed = _decimal_number(raw)
         rendered = format(parsed, "f")
         if "." in rendered:
             rendered = rendered.rstrip("0").rstrip(".")
@@ -582,9 +786,11 @@ def _parse_value(field: EmployeeField, raw, existing):
             raise ValueError("Enter a date between 1900 and 2100.")
         return parsed.isoformat()
     if field.field_type == "yes_no":
-        if raw not in {"yes", "no"}:
-            raise ValueError("Choose yes or no.")
-        return raw
+        if raw is True or raw == "yes":
+            return "yes"
+        if raw is False or raw == "no":
+            return "no"
+        raise ValueError("Choose yes or no.")
     if field.field_type == "dropdown":
         try:
             option_id = uuid.UUID(str(raw))
@@ -694,19 +900,12 @@ def _active_options(field: EmployeeField) -> list[EmployeeFieldOption]:
 
 
 def _option_in_use(field: EmployeeField, option_id) -> bool:
-    needle = str(option_id)
-    for data in db.session.scalars(select(Employee.custom_data)):
-        if isinstance(data, dict) and str(data.get(str(field.id))) == needle:
-            return True
-    return False
+    value = cast(json_text(str(field.id), "option"), String)
+    return db.session.scalar(select(Employee.id).where(value == str(option_id)).limit(1)) is not None
 
 
-def _custom_missing_count(field: EmployeeField) -> int:
-    return db.session.scalar(select(func.count()).select_from(Employee).where(_custom_missing_clause(field))) or 0
-
-
-def _custom_missing_clause(field: EmployeeField):
-    value = json_text(str(field.id), "missing")
+def _custom_missing_clause(field: EmployeeField, suffix: str = "missing"):
+    value = json_text(str(field.id), suffix)
     return func.coalesce(cast(value, String), "") == ""
 
 

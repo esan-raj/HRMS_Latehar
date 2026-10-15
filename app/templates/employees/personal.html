@@ -3,10 +3,11 @@
 {% from "employees/_custom_fields.html" import custom_field with context %}
 {% block title %}Personal details · {{ employee.full_name }}{% endblock %}
 {% block section %}
+  <p class="muted">Employee code <strong>{{ employee.employee_code }}</strong> was assigned automatically and cannot be changed.</p>
   <form class="card" method="post" style="max-width: 40rem;">
     {{ form.hidden_tag() }}
     {% if form.errors or custom_errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
-    {% for field in form if field.widget.input_type != 'hidden' and field.name not in ['full_name', 'phone', 'facility_id'] %}
+    {% for field in form if field.widget.input_type != 'hidden' and field.name not in ['full_name', 'phone', 'facility_id', 'employee_code'] %}
       {{ render_field(field) }}
     {% endfor %}
     {% for definition in form_fields %}

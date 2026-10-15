@@ -170,7 +170,7 @@ def test_required_field_added_for_existing_employees(admin):
     added = _add_field(admin, label="Pension number", required="y", show_in_register="y")
     assert employee.custom_data in (None, {}) or str(added.id) not in (employee.custom_data or {})
     listing = admin.get("/employees?incomplete=1")
-    assert b"EMP-REQ" in listing.data
+    assert employee.employee_code.encode() in listing.data
     blocked = admin.post(
         f"/employees/{employee.id}/personal",
         data=payload(
@@ -350,6 +350,36 @@ def test_permanent_delete_removes_only_that_field(admin):
     assert audit.changes["label"]["before"] == "Locker"
     assert audit.changes["affected_records"]["before"] == 1
     assert "password" not in audit.changes
+    stale = admin.post(
+        f"/employees/{employee.id}/personal",
+        data=payload(
+            full_name="Should Not Save",
+            version=str(employee.version),
+            facility_id=str(employee.facility_id),
+            fields_version="1",
+            **{f"custom_{first.id}": "LOCKER-1", f"custom_{second.id}": "ALPHA-9"},
+        ),
+    )
+    assert stale.status_code == 409
+    employee = db.session.get(Employee, employee.id)
+    assert employee.full_name != "Should Not Save"
+    assert str(first.id) not in (employee.custom_data or {})
+    current = _catalog_version()
+    saved = admin.post(
+        f"/employees/{employee.id}/personal",
+        data=payload(
+            full_name="Renamed After Delete",
+            version=str(employee.version),
+            facility_id=str(employee.facility_id),
+            fields_version=str(current),
+            **{f"custom_{first.id}": "LOCKER-1", f"custom_{second.id}": "ALPHA-9"},
+        ),
+    )
+    assert saved.status_code == 302, saved.get_data(as_text=True)
+    employee = db.session.get(Employee, employee.id)
+    assert employee.full_name == "Renamed After Delete"
+    assert str(first.id) not in (employee.custom_data or {})
+    assert employee.custom_data[str(second.id)] == "ALPHA-9"
 
 
 def test_stale_field_configuration_does_not_save(admin):
@@ -432,6 +462,61 @@ def test_existing_employee_rows_survive_backfill_without_invented_values(app):
     assert unposted.phone == ""
     assert unposted.facility_id is None
     assert db.session.scalar(select(Employee).where(Employee.employee_code == "EMP-OLD1")) is not None
+
+
+def test_aadhaar_accepts_a_real_number_and_rejects_the_integer_limit(admin):
+    field = _add_field(admin, label="Aadhar Card", field_type="integer", placeholder="1234 4567 8901")
+    page = admin.get("/employees/new")
+    body = page.get_data(as_text=True)
+    assert "12 digits. Spaces are allowed." in body
+    assert 'data-aadhaar="1"' in body
+    employee = create_employee(
+        admin,
+        employee_code="EMP-AADHAAR",
+        fields_version=str(_catalog_version()),
+        **{f"custom_{field.id}": "6854 7125 9453"},
+    )
+    assert employee.custom_data[str(field.id)] == "685471259453"
+    facility = employee.facility_id
+    letters = admin.post(
+        "/employees/new",
+        data=payload(
+            employee_code="EMP-AADHAAR2",
+            version="0",
+            facility_id=str(facility),
+            fields_version=str(_catalog_version()),
+            **{f"custom_{field.id}": "6854 7125 945A"},
+        ),
+    )
+    assert letters.status_code == 400
+    assert b"Enter only numbers." in letters.data
+    short = admin.post(
+        "/employees/new",
+        data=payload(
+            employee_code="EMP-AADHAAR3",
+            full_name="Third Person",
+            email="third@example.com",
+            version="0",
+            facility_id=str(facility),
+            fields_version=str(_catalog_version()),
+            **{f"custom_{field.id}": "6854 7125 945"},
+        ),
+    )
+    assert short.status_code == 400
+    assert b"Enter a 12-digit Aadhaar number." in short.data
+    room = _add_field(admin, label="Room number", field_type="integer", section="Notes")
+    too_big = admin.post(
+        "/employees/new",
+        data=payload(
+            employee_code="EMP-ROOM",
+            version="0",
+            facility_id=str(facility),
+            fields_version=str(_catalog_version()),
+            **{f"custom_{field.id}": "234123412346", f"custom_{room.id}": "234567890124"},
+        ),
+    )
+    assert too_big.status_code == 400
+    assert b"between -1000000000 and 1000000000" in too_big.data
 
 
 def _catalog_version() -> int:
