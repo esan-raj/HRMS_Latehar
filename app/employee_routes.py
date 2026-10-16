@@ -1,4 +1,6 @@
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+import io
+
+from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, url_for
 from sqlalchemy import select
 
 from app.choices import active_choices, facility_label, register_filter_choices
@@ -13,9 +15,19 @@ from app.fielddefs import (
     ordered_fields,
     parse_custom_values,
 )
-from app.forms import EmploymentForm, PersonalForm
+from app.forms import GENDERS, EmploymentForm, PersonalForm
 from app.hr import create_employee, next_employee_code, save_employment, set_employee_active, update_employee
 from app.models import Department, EmploymentDetail, EmploymentType, Facility
+from app.transfers import (
+    BulkFileError,
+    export_table,
+    import_employees,
+    pdf_bytes,
+    record_facts,
+    template_columns,
+    template_csv,
+    workbook_bytes,
+)
 from app.web import apply_field_error, get_employee, render_employee
 
 bp = Blueprint("employees", __name__, url_prefix="/employees")
@@ -81,7 +93,64 @@ def create():
 @bp.route("/<uuid:employee_id>")
 def profile(employee_id):
     get_employee(employee_id)
-    return redirect(url_for("employees.personal", employee_id=employee_id))
+    return redirect(url_for("employees.view_record", employee_id=employee_id))
+
+
+@bp.route("/<uuid:employee_id>/view")
+def view_record(employee_id):
+    employee = get_employee(employee_id)
+    personal, custom, employment = record_facts(employee)
+    return render_employee(
+        "employees/view.html",
+        employee,
+        "view",
+        personal=personal,
+        custom=custom,
+        employment=employment,
+    )
+
+
+@bp.route("/export/excel")
+def export_xlsx():
+    headers, rows, truncated = export_table(request.args)
+    payload = workbook_bytes(headers, rows, truncated)
+    return _download(payload, "employees.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@bp.route("/export/pdf")
+def export_pdf():
+    headers, rows, truncated = export_table(request.args)
+    payload = pdf_bytes(headers, rows, truncated)
+    return _download(payload, "employees.pdf", "application/pdf")
+
+
+@bp.route("/bulk/template")
+def bulk_template():
+    return _download(template_csv(), "employee-template.csv", "text/csv; charset=utf-8")
+
+
+@bp.route("/bulk", methods=["GET", "POST"])
+def bulk():
+    errors = []
+    if request.method == "POST":
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            errors = ["Choose a CSV file."]
+        elif not upload.filename.lower().endswith(".csv"):
+            errors = ["Upload a CSV file made from the sample template."]
+        else:
+            try:
+                result = import_employees(g.actor_id, upload.read())
+            except BulkFileError as exc:
+                errors = [exc.message]
+            else:
+                if result.errors:
+                    errors = result.errors
+                else:
+                    flash(f"Added {result.created} employees.", "success")
+                    return redirect(url_for("employees.index"))
+        return render_template("employees/bulk.html", columns=template_columns(), facilities=_active_facilities(), errors=errors), 400
+    return render_template("employees/bulk.html", columns=template_columns(), facilities=_active_facilities(), errors=errors)
 
 
 @bp.route("/<uuid:employee_id>/personal", methods=["GET", "POST"])
@@ -195,6 +264,16 @@ def _set_active(employee_id, active: bool):
     return redirect(url_for("employees.personal", employee_id=employee.id))
 
 
+def _download(payload: bytes, filename: str, mimetype: str):
+    buffer = io.BytesIO(payload)
+    buffer.seek(0)
+    return send_file(buffer, mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
+def _active_facilities():
+    return db.session.scalars(select(Facility).where(Facility.is_active.is_(True)).order_by(Facility.name)).all()
+
+
 def _prepare_employee_form(form, employee):
     ensure_system_fields()
     selected = employee.facility_id if employee is not None else None
@@ -203,6 +282,7 @@ def _prepare_employee_form(form, employee):
     form.facility_id.choices = active_choices(Facility, selected=selected, label=facility_label) or [
         ("", "Add a facility first")
     ]
+    form.gender.choices = [("", "Select")] + list(GENDERS)
     by_key = {field.field_key: field for field in ordered_fields(include_archived=False)}
     for key, attr in (("full_name", "full_name"), ("phone", "phone"), ("facility_id", "facility_id")):
         definition = by_key.get(key)

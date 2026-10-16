@@ -2,10 +2,20 @@
 {% block body %}
   {% set slug = request.view_args.get('slug') if request.view_args else '' %}
   <input id="nav-toggle" class="nav-toggle" type="checkbox">
-  <label class="menu-button" for="nav-toggle">Menu</label>
+  <header class="mobile-bar">
+    <label class="menu-button" for="nav-toggle" aria-label="Menu"><span class="menu-open">Menu</span><span class="menu-close" aria-hidden="true">Close</span></label>
+    <span class="mobile-title">HR Records</span>
+  </header>
+  <label class="nav-scrim" for="nav-toggle" aria-hidden="true"></label>
   <div class="shell">
     <aside class="sidebar">
-      <a class="brand" href="{{ url_for('dashboard.index') }}">HR Records</a>
+      <a class="brand" href="{{ url_for('dashboard.index') }}">
+        <span class="brand-mark" aria-hidden="true">HR</span>
+        <span>
+          <span class="brand-name">HR Records</span>
+          <span class="brand-sub">Latehar</span>
+        </span>
+      </a>
       <nav aria-label="Primary">
         <a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}aria-current="page"{% endif %}>Dashboard</a>
         <a href="{{ url_for('employees.index') }}" {% if request.endpoint and request.endpoint.startswith('employees.') %}aria-current="page"{% endif %}>Employees</a>
@@ -26,8 +36,10 @@
       </form>
     </aside>
     <main id="content" class="content">
-      {% include "flashes.html" %}
-      {% block content %}{% endblock %}
+      <div class="page">
+        {% include "flashes.html" %}
+        {% block content %}{% endblock %}
+      </div>
     </main>
   </div>
 {% endblock %}

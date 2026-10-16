@@ -3,6 +3,13 @@
 {% block title %}Sign in · HR Records{% endblock %}
 {% block content %}
   <div class="card auth-card">
+    <div class="auth-brand">
+      <span class="brand-mark" aria-hidden="true">HR</span>
+      <div>
+        <p class="auth-product">HR Records</p>
+        <p class="auth-place">Latehar</p>
+      </div>
+    </div>
     <h1 class="page-title">Sign in</h1>
     <p class="muted">Administrator access only.</p>
     <form method="post" action="{{ url_for('auth.login') }}">

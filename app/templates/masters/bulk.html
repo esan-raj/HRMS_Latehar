@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Bulk upload · {{ spec.title }} · HR Records{% endblock %}
+{% block content %}
+  <p class="crumb"><a href="{{ url_for('masters.index', slug=spec.slug) }}">{{ spec.title }}</a></p>
+  <h1 class="page-title">Bulk upload</h1>
+  <div class="card">
+    <p>Download the sample template, replace the sample row, and upload the CSV. Every row is checked before anything is added.</p>
+    <p class="mb-2"><a class="btn btn-outline-secondary" href="{{ url_for('masters.bulk_template', slug=spec.slug) }}">Download sample CSV</a></p>
+    {% if spec.facility %}
+      <p class="mb-2">The sample row uses the name <strong>Sample facility</strong>. That row is ignored. Facility codes are assigned automatically.</p>
+    {% else %}
+      <p class="mb-2">The sample row uses the name <strong>Sample name</strong>. That row is ignored.</p>
+    {% endif %}
+    <h2 class="h6">Columns</h2>
+    <ul class="mb-0">
+      {% for header, hint in columns %}
+        <li><code>{{ header }}</code> — {{ hint }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <form class="card" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if errors %}
+      <div class="alert alert-danger" role="alert">
+        <p class="mb-2">Nothing was added.</p>
+        <ul class="mb-0">
+          {% for error in errors %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    <label class="form-label" for="file">CSV file</label>
+    <input class="form-control mb-3" id="file" name="file" type="file" accept=".csv,text/csv" required>
+    <button class="btn btn-primary" type="submit">Upload {{ spec.title|lower }}</button>
+  </form>
+{% endblock %}

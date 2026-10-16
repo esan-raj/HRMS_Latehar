@@ -16,6 +16,7 @@ from app.models import (
     EmploymentDetail,
     EmploymentType,
     Facility,
+    FacilityCodeCounter,
     JobAppointment,
     Posting,
     Promotion,
@@ -42,6 +43,84 @@ EMPLOYMENT_FIELDS = (
     "pay_level",
 )
 POSTING_FIELDS = ("facility_id", "designation_id", "start_date", "end_date", "order_reference", "remarks")
+
+
+def next_facility_code() -> str:
+    """Preview the next FAC-0001 style code without reserving it."""
+    last = _facility_counter_value()
+    return _format_available_facility_code(last)
+
+
+def allocate_facility_code() -> str:
+    """Reserve the next facility code under a row lock.
+
+    Existing codes, including ones that do not use the FAC- prefix, stay as they are.
+    A rolled-back insert returns the reserved number with the transaction.
+    """
+    _ensure_facility_counter()
+    counter = db.session.scalar(
+        select(FacilityCodeCounter).where(FacilityCodeCounter.id == 1).with_for_update()
+    )
+    if counter.last_value == 0:
+        highest = _highest_facility_number()
+        if highest > counter.last_value:
+            counter.last_value = highest
+    while True:
+        counter.last_value += 1
+        code = f"FAC-{counter.last_value:04d}"
+        if not _facility_code_in_use(code):
+            db.session.flush()
+            return code
+
+
+def _facility_counter_value() -> int:
+    _ensure_facility_counter()
+    last = db.session.scalar(select(FacilityCodeCounter.last_value).where(FacilityCodeCounter.id == 1)) or 0
+    if last == 0:
+        return _highest_facility_number()
+    return last
+
+
+def _format_available_facility_code(last: int) -> str:
+    candidate = last + 1
+    while _facility_code_in_use(f"FAC-{candidate:04d}"):
+        candidate += 1
+    return f"FAC-{candidate:04d}"
+
+
+def _facility_code_in_use(code: str) -> bool:
+    return db.session.scalar(select(Facility.id).where(Facility.code == code).limit(1)) is not None
+
+
+def _ensure_facility_counter() -> None:
+    if db.session.get(FacilityCodeCounter, 1) is not None:
+        return
+    try:
+        with db.session.begin_nested():
+            db.session.add(FacilityCodeCounter(id=1, last_value=0))
+            db.session.flush()
+    except IntegrityError:
+        return
+
+
+def _highest_facility_number() -> int:
+    if db.session.scalar(select(Facility.id).limit(1)) is None:
+        return 0
+    if db.engine.dialect.name == "postgresql":
+        value = db.session.scalar(
+            text(
+                "SELECT COALESCE(MAX((regexp_match(code, '^FAC-([0-9]+)$'))[1]::integer), 0) "
+                "FROM hrms.facilities"
+            )
+        )
+        return int(value or 0)
+    highest = 0
+    pattern = re.compile(r"^FAC-(\d+)$")
+    for code in db.session.scalars(select(Facility.code)):
+        match = pattern.fullmatch(code or "")
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest
 
 
 def next_employee_code() -> str:

@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Employees · HR Records{% endblock %}
 {% block content %}
-  <div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="toolbar">
     <h1 class="page-title mb-0">Employees</h1>
-    <a class="btn btn-primary" href="{{ url_for('employees.create') }}">Add employee</a>
+    <div class="toolbar-actions">
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.bulk') }}">Bulk upload</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.export_xlsx', sort=sort, dir=direction, **filters) }}">Download Excel</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.export_pdf', sort=sort, dir=direction, **filters) }}">Download PDF</a>
+      <a class="btn btn-primary" href="{{ url_for('employees.create') }}">Add employee</a>
+    </div>
   </div>
-  <form class="card" method="get" action="{{ url_for('employees.index') }}">
-    <div class="row g-2">
-      <div class="col-md-4">
+  <form class="card filter-card" method="get" action="{{ url_for('employees.index') }}">
+    <div class="filter-grid">
+      <div>
         <label class="form-label" for="q">Search code or name</label>
         <input class="form-control" id="q" name="q" value="{{ query }}" maxlength="100">
       </div>
-      <div class="col-md-4">
+      <div>
         <label class="form-label" for="designation_id">Current designation</label>
         <select class="form-select" id="designation_id" name="designation_id">
           {% for value, label in designations %}
@@ -19,7 +24,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-4">
+      <div>
         <label class="form-label" for="facility_id">Current facility</label>
         <select class="form-select" id="facility_id" name="facility_id">
           {% for value, label in facilities %}
@@ -27,7 +32,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-4">
+      <div>
         <label class="form-label" for="employment_type_id">Employment type</label>
         <select class="form-select" id="employment_type_id" name="employment_type_id">
           {% for value, label in employment_types %}
@@ -35,7 +40,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-4">
+      <div>
         <label class="form-label" for="status">Status</label>
         <select class="form-select" id="status" name="status">
           <option value="" {% if not status %}selected{% endif %}>All statuses</option>
@@ -43,23 +48,23 @@
           <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactive</option>
         </select>
       </div>
-      <div class="col-md-4 d-flex align-items-end">
-        <button class="btn btn-primary me-2" type="submit">Apply</button>
+      <div>
+        <label class="form-label" for="filter_field">Custom field</label>
+        <select class="form-select" id="filter_field" name="filter_field">
+          <option value="">No custom filter</option>
+          {% for field in filterable_fields %}
+            <option value="{{ field.id }}" {% if field.id|string == filter_field %}selected{% endif %}>{{ field.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="filter_value">Custom field value</label>
+        <input class="form-control" id="filter_value" name="filter_value" value="{{ filter_value }}" maxlength="100">
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" type="submit">Apply</button>
         <a class="btn btn-outline-secondary" href="{{ url_for('employees.index') }}">Clear</a>
       </div>
-      <div class="col-md-4">
-      <label class="form-label" for="filter_field">Custom field</label>
-      <select class="form-select" id="filter_field" name="filter_field">
-        <option value="">No custom filter</option>
-        {% for field in filterable_fields %}
-          <option value="{{ field.id }}" {% if field.id|string == filter_field %}selected{% endif %}>{{ field.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-4">
-      <label class="form-label" for="filter_value">Custom field value</label>
-      <input class="form-control" id="filter_value" name="filter_value" value="{{ filter_value }}" maxlength="100">
-    </div>
     </div>
     {% if incomplete %}<input type="hidden" name="incomplete" value="1">{% endif %}
     <p class="muted mb-0 mt-2">Designation and the facility filter use the current posting. The Facility column is the employee's own facility. Mobile numbers are text.</p>
@@ -102,10 +107,10 @@
                   </td>
                 {% endfor %}
                 <td class="actions">
-                  <a href="{{ url_for('employees.personal', employee_id=row.employee.id) }}">View</a>
+                  <a href="{{ url_for('employees.view_record', employee_id=row.employee.id) }}">View</a>
                   <a href="{{ url_for('employees.personal', employee_id=row.employee.id) }}">Edit</a>
                   {% if row.employee.is_active %}
-                    <a href="{{ url_for('employees.deactivate', employee_id=row.employee.id) }}">Deactivate</a>
+                    <a class="action-danger" href="{{ url_for('employees.deactivate', employee_id=row.employee.id) }}">Deactivate</a>
                   {% else %}
                     <a href="{{ url_for('employees.reactivate', employee_id=row.employee.id) }}">Reactivate</a>
                   {% endif %}
@@ -115,7 +120,7 @@
           </tbody>
         </table>
       </div>
-      <nav class="d-flex justify-content-between align-items-center" aria-label="Pagination">
+      <nav class="pager" aria-label="Pagination">
         <span class="muted">{{ page.total }} employees · page {{ page.page }} of {{ page.pages }}</span>
         <div class="actions">
           {% if page.has_prev %}

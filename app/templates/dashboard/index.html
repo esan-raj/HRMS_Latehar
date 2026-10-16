@@ -1,50 +1,90 @@
 {% extends "base.html" %}
+{% macro bars(rows, empty) %}
+  {% if rows %}
+    <div class="bar-list">
+      {% for row in rows %}
+        <div class="bar-row">
+          <span class="bar-label">{{ row.label }}</span>
+          <span class="bar-track" role="presentation"><span class="bar-fill" style="width: {{ row.share }}%;"></span></span>
+          <span class="bar-count">{{ row.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="mb-0">{{ empty }}</p>
+  {% endif %}
+{% endmacro %}
 {% block title %}Dashboard · HR Records{% endblock %}
 {% block content %}
   <h1 class="page-title">Dashboard</h1>
-  <p class="muted">Counts come from database aggregates.</p>
-  <div class="stat-grid mb-3">
-    <section class="card"><p class="muted mb-1">Total employees</p><p class="stat">{{ counts.total }}</p></section>
-    <section class="card"><p class="muted mb-1">Active</p><p class="stat">{{ counts.active }}</p></section>
-    <section class="card"><p class="muted mb-1">Inactive</p><p class="stat">{{ counts.inactive }}</p></section>
+  <p class="muted">Counts come from the employee records. Facility is the employee's own facility. Designation uses the current posting.</p>
+  <div class="stat-grid mb-2">
+    <a class="card stat-link" href="{{ url_for('employees.index') }}"><p class="muted mb-1">Total employees</p><p class="stat">{{ counts.total }}</p></a>
+    <a class="card stat-link" href="{{ url_for('employees.index', status='active') }}"><p class="muted mb-1">Active</p><p class="stat">{{ counts.active }}</p></a>
+    <a class="card stat-link" href="{{ url_for('employees.index', status='inactive') }}"><p class="muted mb-1">Inactive</p><p class="stat">{{ counts.inactive }}</p></a>
     <section class="card"><p class="muted mb-1">Active without a current posting</p><p class="stat">{{ counts.unassigned }}</p></section>
+    <a class="card stat-link" href="{{ url_for('employees.index', incomplete=1) }}"><p class="muted mb-1">Missing a required value</p><p class="stat">{{ counts.incomplete }}</p></a>
   </div>
+  {% if counts.total %}
+    <div class="card mix-card">
+      <p class="mb-2">{{ counts.active }} active · {{ counts.inactive }} inactive</p>
+      <div class="mix" role="img" aria-label="{{ counts.active }} active and {{ counts.inactive }} inactive">
+        <span class="mix-active" style="width: {{ counts.active_share }}%;"></span>
+        <span class="mix-inactive" style="width: {{ 100 - counts.active_share }}%;"></span>
+      </div>
+    </div>
+  {% endif %}
   <div class="row g-3">
     <div class="col-lg-6">
       <section class="card">
-        <h2 class="h5">Active employees by designation</h2>
-        {% if counts.by_designation %}
-          <div class="table-wrap">
-            <table class="table table-sm mb-0">
-              <thead><tr><th scope="col">Designation</th><th scope="col">Employees</th></tr></thead>
-              <tbody>
-                {% for name, count in counts.by_designation %}
-                  <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <p class="mb-0">No active employees have a current posting.</p>
-        {% endif %}
+        <h2 class="h5">Employees by facility</h2>
+        {{ bars(counts.by_facility, "No employees have a facility yet.") }}
       </section>
     </div>
     <div class="col-lg-6">
       <section class="card">
-        <h2 class="h5">Active employees by facility</h2>
-        {% if counts.by_facility %}
+        <h2 class="h5">Gender</h2>
+        {{ bars(counts.by_gender, "No employees yet.") }}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Employment type</h2>
+        {{ bars(counts.by_employment_type, "No employment type has been recorded.") }}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Current posting by designation</h2>
+        {{ bars(counts.by_designation, "No active employees have a current posting.") }}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Current posting by facility</h2>
+        {{ bars(counts.by_posting_facility, "No active employees have a current posting.") }}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card">
+        <h2 class="h5">Recently added</h2>
+        {% if counts.recent %}
           <div class="table-wrap">
             <table class="table table-sm mb-0">
-              <thead><tr><th scope="col">Facility</th><th scope="col">Employees</th></tr></thead>
+              <thead><tr><th scope="col">Name</th><th scope="col">Facility</th><th scope="col">Status</th></tr></thead>
               <tbody>
-                {% for name, count in counts.by_facility %}
-                  <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
+                {% for employee in counts.recent %}
+                  <tr>
+                    <td><a href="{{ url_for('employees.view_record', employee_id=employee.id) }}">{{ employee.full_name }}</a><br><span class="muted">{{ employee.employee_code }}</span></td>
+                    <td>{{ employee.facility.name if employee.facility else "—" }}</td>
+                    <td>{% if employee.is_active %}<span class="badge text-bg-success">Active</span>{% else %}<span class="badge text-bg-secondary">Inactive</span>{% endif %}</td>
+                  </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
         {% else %}
-          <p class="mb-0">No active employees have a current posting.</p>
+          <p class="mb-0">No employees yet.</p>
         {% endif %}
       </section>
     </div>

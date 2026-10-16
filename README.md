@@ -98,6 +98,17 @@ Optional synthetic records. The command refuses to run when any employee already
 flask --app wsgi:application seed-demo
 ```
 
+Isolated workflow dataset. This is separate from the production database. Start PostgreSQL on `127.0.0.1`, database name `hrms_test`, then point only that process at it and set `HRMS_TEST_DATABASE=1`. `seed-workflow` refuses any other target. `cleanup-workflow` deletes only rows from that dataset.
+
+```powershell
+$env:HRMS_TEST_DATABASE = "1"
+$env:DATABASE_URL = "postgresql://hrms_test:PASSWORD@127.0.0.1:54329/hrms_test"
+$env:MIGRATION_DATABASE_URL = $env:DATABASE_URL
+flask --app wsgi:application db upgrade
+flask --app wsgi:application seed-workflow
+flask --app wsgi:application run --port 5001
+```
+
 Tests use an in-memory SQLite database and do not need Supabase:
 
 ```powershell

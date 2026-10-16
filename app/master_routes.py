@@ -1,11 +1,22 @@
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+import io
+
+from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, url_for
 from sqlalchemy import select
 
 from app.audit import column_snapshot, record_audit
 from app.domain import DomainError, FieldError, StaleEditError
 from app.extensions import db
 from app.forms import FacilityForm, MasterNameForm
-from app.hr import MASTER_MODELS, delete_blocked_message, facility_code_taken, name_taken, referenced_labels
+from app.hr import (
+    MASTER_MODELS,
+    allocate_facility_code,
+    delete_blocked_message,
+    name_taken,
+    next_facility_code,
+    referenced_labels,
+)
+from app.master_transfer import import_masters, master_table, template_columns, template_csv
+from app.transfers import BulkFileError, pdf_bytes, workbook_bytes
 from app.persistence import apply_versioned_update, commit_or_conflict, new_id, reload_locked
 
 bp = Blueprint("masters", __name__, url_prefix="/masters")
@@ -56,6 +67,54 @@ def index(slug):
         return redirect(url_for("masters.index", slug=slug))
     status = 400 if request.method == "POST" else 200
     return _render_list(spec, form), status
+
+
+@bp.route("/<slug>/export/excel")
+def export_xlsx(slug):
+    spec = _spec(slug)
+    headers, rows, truncated = master_table(spec)
+    payload = workbook_bytes(headers, rows, truncated, spec["title"])
+    return _download(payload, f"{slug}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@bp.route("/<slug>/export/pdf")
+def export_pdf(slug):
+    spec = _spec(slug)
+    headers, rows, truncated = master_table(spec)
+    payload = pdf_bytes(headers, rows, truncated, spec["title"].lower())
+    return _download(payload, f"{slug}.pdf", "application/pdf")
+
+
+@bp.route("/<slug>/bulk/template")
+def bulk_template(slug):
+    spec = _spec(slug)
+    return _download(template_csv(spec), f"{slug}-template.csv", "text/csv; charset=utf-8")
+
+
+@bp.route("/<slug>/bulk", methods=["GET", "POST"])
+def bulk(slug):
+    spec = _spec(slug)
+    errors = []
+    if request.method == "POST":
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            errors = ["Choose a CSV file."]
+        elif not upload.filename.lower().endswith(".csv"):
+            errors = ["Upload a CSV file made from the sample template."]
+        else:
+            try:
+                result = import_masters(g.actor_id, spec, upload.read())
+            except BulkFileError as exc:
+                errors = [exc.message]
+            else:
+                if result.errors:
+                    errors = result.errors
+                else:
+                    label = spec["singular"] if result.created == 1 else spec["title"].lower()
+                    flash(f"Added {result.created} {label}.", "success")
+                    return redirect(url_for("masters.index", slug=slug))
+        return render_template("masters/bulk.html", spec=spec, columns=template_columns(spec), errors=errors), 400
+    return render_template("masters/bulk.html", spec=spec, columns=template_columns(spec), errors=errors)
 
 
 @bp.route("/<slug>/<uuid:record_id>/edit", methods=["GET", "POST"])
@@ -134,13 +193,22 @@ def delete(slug, record_id):
     return redirect(url_for("masters.index", slug=slug))
 
 
+def _download(payload: bytes, filename: str, mimetype: str):
+    buffer = io.BytesIO(payload)
+    buffer.seek(0)
+    return send_file(buffer, mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
 def _render_list(spec, form):
     rows = db.session.scalars(select(spec["model"]).order_by(spec["model"].name)).all()
-    return render_template("masters/list.html", spec=spec, form=form, rows=rows)
+    next_code = next_facility_code() if spec["facility"] else None
+    return render_template("masters/list.html", spec=spec, form=form, rows=rows, next_code=next_code)
 
 
 def _create_master(spec, form):
     values = form.values()
+    if spec["facility"]:
+        values["code"] = allocate_facility_code()
     _reject_duplicates(spec, values, None)
     row = spec["model"](id=new_id(), version=1, is_active=True, **values)
     db.session.add(row)
@@ -228,9 +296,6 @@ def _set_active(spec, record_id, version, active: bool) -> bool:
 
 def _reject_duplicates(spec, values, exclude_id):
     if spec["facility"]:
-        if facility_code_taken(values["code"], exclude_id):
-            db.session.rollback()
-            raise FieldError("code", "A facility with this code already exists.")
         return
     if name_taken(spec["model"], values["name"], exclude_id):
         db.session.rollback()
@@ -242,7 +307,6 @@ def _bind_master(form, record, facility: bool) -> None:
     form.version.data = record.version
     if not facility:
         return
-    form.code.data = record.code
     form.facility_type.data = record.facility_type
     form.district.data = record.district
     form.block.data = record.block

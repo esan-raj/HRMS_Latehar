@@ -2,8 +2,11 @@
 {% from "macros.html" import render_field %}
 {% block title %}Edit {{ spec.singular }} · HR Records{% endblock %}
 {% block content %}
-  <p><a href="{{ url_for('masters.index', slug=spec.slug) }}">{{ spec.title }}</a></p>
+  <p class="crumb"><a href="{{ url_for('masters.index', slug=spec.slug) }}">{{ spec.title }}</a></p>
   <h1 class="page-title">Edit {{ spec.singular }}</h1>
+  {% if spec.facility %}
+    <p class="muted">Facility code <strong>{{ record.code }}</strong> was assigned automatically and cannot be changed.</p>
+  {% endif %}
   <form class="card" method="post" style="max-width: 40rem;">
     {{ form.hidden_tag() }}
     {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}

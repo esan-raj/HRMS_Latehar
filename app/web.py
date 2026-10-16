@@ -5,6 +5,7 @@ from app.extensions import db
 from app.models import Employee, Posting
 
 SECTIONS = (
+    ("view", "View", "employees.view_record"),
     ("personal", "Personal Details", "employees.personal"),
     ("employment", "Employment", "employees.employment"),
     ("postings", "Current Posting", "employees.postings"),

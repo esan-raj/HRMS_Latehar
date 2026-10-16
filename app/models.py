@@ -86,8 +86,8 @@ class Employee(UUIDPrimaryKey, TimestampMixin, VersionMixin, db.Model):
 
     employee_code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    date_of_birth: Mapped[datetime] = mapped_column(Date, nullable=False)
-    gender: Mapped[str] = mapped_column(String(16), nullable=False)
+    date_of_birth: Mapped[datetime | None] = mapped_column(Date)
+    gender: Mapped[str | None] = mapped_column(String(16))
     phone: Mapped[str | None] = mapped_column(String(20))
     email: Mapped[str | None] = mapped_column(String(254))
     facility_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -337,6 +337,18 @@ class EmployeeCodeCounter(db.Model):
     """
 
     __tablename__ = "employee_code_counters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class FacilityCodeCounter(db.Model):
+    """One row that reserves the next FAC-0001 style code.
+
+    Allocation locks this row. Existing facility codes are not rewritten.
+    """
+
+    __tablename__ = "facility_code_counters"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

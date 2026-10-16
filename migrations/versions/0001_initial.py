@@ -20,7 +20,7 @@ def upgrade():
     op.execute("SET search_path TO hrms, public")
     bind = op.get_bind()
     db.metadata.create_all(bind=bind.execution_options(schema_translate_map={None: "hrms"}))
-    names = sorted(db.metadata.tables)
+    names = sorted(table.name for table in db.metadata.tables.values())
     for name in names:
         if not name.replace("_", "").isalnum():
             raise RuntimeError("Refusing to lock down an unexpected table name.")

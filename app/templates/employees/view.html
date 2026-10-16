@@ -1,0 +1,59 @@
+{% extends "employees/profile_base.html" %}
+{% block title %}{{ employee.full_name }} · HR Records{% endblock %}
+{% block section %}
+  <div class="actions mb-3">
+    <a class="btn btn-primary btn-sm" href="{{ url_for('employees.personal', employee_id=employee.id) }}">Edit</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('employees.export_xlsx', employee_id=employee.id) }}">Download Excel</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('employees.export_pdf', employee_id=employee.id) }}">Download PDF</a>
+  </div>
+  <div class="card">
+    <h2 class="h5">Personal details</h2>
+    <dl class="row mb-0">
+      {% for label, value in personal %}
+        <dt class="col-sm-4">{{ label }}</dt>
+        <dd class="col-sm-8">{{ value }}</dd>
+      {% endfor %}
+    </dl>
+  </div>
+  {% if custom %}
+    <div class="card">
+      <h2 class="h5">Additional fields</h2>
+      <dl class="row mb-0">
+        {% for label, value in custom %}
+          <dt class="col-sm-4">{{ label }}</dt>
+          <dd class="col-sm-8">{{ value }}</dd>
+        {% endfor %}
+      </dl>
+    </div>
+  {% endif %}
+  <div class="card">
+    <h2 class="h5">Employment</h2>
+    {% if employment %}
+      <dl class="row mb-0">
+        {% for label, value in employment %}
+          <dt class="col-sm-4">{{ label }}</dt>
+          <dd class="col-sm-8">{{ value }}</dd>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="mb-0">No employment details.</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2 class="h5">Current posting</h2>
+    {% if current_posting %}
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Designation</dt>
+        <dd class="col-sm-8">{{ current_posting.designation.name }}</dd>
+        <dt class="col-sm-4">Facility</dt>
+        <dd class="col-sm-8">{{ current_posting.facility.name }}</dd>
+        <dt class="col-sm-4">Since</dt>
+        <dd class="col-sm-8">{{ current_posting.start_date|show_date }}</dd>
+        <dt class="col-sm-4">Order reference</dt>
+        <dd class="col-sm-8">{{ current_posting.order_reference }}</dd>
+      </dl>
+    {% else %}
+      <p class="mb-0">No current posting.</p>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Bulk upload · HR Records{% endblock %}
+{% block content %}
+  <p class="crumb"><a href="{{ url_for('employees.index') }}">Employees</a></p>
+  <h1 class="page-title">Bulk upload</h1>
+  <div class="card">
+    <p>Download the sample template, replace the sample row, and upload the CSV. Employee codes are assigned automatically. Every row is checked before any employee is added. Dates can be YYYY-MM-DD or DD/MM/YYYY.</p>
+    <p class="mb-2"><a class="btn btn-outline-secondary" href="{{ url_for('employees.bulk_template') }}">Download sample CSV</a></p>
+    <p class="mb-2">The sample row uses the name <strong>Dr. Sample Name</strong> and mobile <strong>9867000001</strong>. That row is ignored.</p>
+    <h2 class="h6">Columns</h2>
+    <ul>
+      {% for field, header, hint in columns %}
+        <li><code>{{ header }}</code> — {{ hint }}</li>
+      {% endfor %}
+    </ul>
+    {% if facilities %}
+      <h2 class="h6">Facility names you can use</h2>
+      <p class="mb-0">{{ facilities|map(attribute='name')|join(', ') }}</p>
+    {% else %}
+      <p class="mb-0">Add a facility before uploading employees.</p>
+    {% endif %}
+  </div>
+  <form class="card" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if errors %}
+      <div class="alert alert-danger" role="alert">
+        <p class="mb-2">No employees were added.</p>
+        <ul class="mb-0">
+          {% for error in errors %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    <label class="form-label" for="file">CSV file</label>
+    <input class="form-control mb-3" id="file" name="file" type="file" accept=".csv,text/csv" required>
+    <button class="btn btn-primary" type="submit">Upload employees</button>
+  </form>
+{% endblock %}

@@ -16,7 +16,7 @@ from app.fielddefs import (
     register_fields,
     remember_incomplete_count,
 )
-from app.models import Designation, Employee, EmploymentDetail, Facility, Posting
+from app.models import Designation, Employee, EmploymentDetail, EmploymentType, Facility, Posting
 
 PAGE_SIZE = 20
 SORTS = {
@@ -60,7 +60,8 @@ class DirectoryRow:
                 self.cells.append(_cell(employee, column))
 
 
-def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn], int]:
+def directory_selection(args):
+    """Return the register filters shared by the list and the downloads."""
     ensure_system_fields()
     columns = _register_columns()
     sortable = {column.key for column in columns if column.sortable}
@@ -69,15 +70,9 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
     requested_sort = (args.get("sort") or "name").strip()
     sort = requested_sort if requested_sort in sortable or requested_sort in SORTS else "name"
     direction = args.get("dir") if args.get("dir") in {"asc", "desc"} else "asc"
-    try:
-        page = int(args.get("page") or 1)
-    except (TypeError, ValueError):
-        page = 1
-    page = max(page, 1)
     designation_id = _uuid(args.get("designation_id"))
     facility_id = _uuid(args.get("facility_id"))
     employment_type_id = _uuid(args.get("employment_type_id"))
-
     criteria = []
     if query:
         like = f"%{query}%"
@@ -108,7 +103,6 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
             )
         )
     incomplete = args.get("incomplete") == "1"
-    missing = incomplete_predicate("banner")
     if incomplete:
         narrowed = incomplete_predicate("filter")
         criteria.append(narrowed if narrowed is not None else Employee.id.is_(None))
@@ -116,51 +110,6 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
     if custom_filter is not None:
         criteria.append(custom_filter)
 
-    page_match = and_(*criteria) if criteria else true()
-    missing_match = missing if missing is not None else false()
-    total, incomplete_count = db.session.execute(
-        select(
-            func.coalesce(func.sum(case((page_match, 1), else_=0)), 0),
-            func.coalesce(func.sum(case((missing_match, 1), else_=0)), 0),
-        ).select_from(Employee)
-    ).one()
-    total = int(total or 0)
-    remember_incomplete_count(int(incomplete_count or 0))
-    pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
-    page = min(page, pages)
-    ordering = _ordering(sort, direction)
-    employees = db.session.scalars(
-        select(Employee)
-        .options(joinedload(Employee.facility))
-        .where(*criteria)
-        .order_by(ordering, Employee.id)
-        .offset((page - 1) * PAGE_SIZE)
-        .limit(PAGE_SIZE)
-    ).unique().all()
-    postings = {}
-    employments = {}
-    ids = [employee.id for employee in employees]
-    if ids:
-        posting_rows = db.session.scalars(
-            select(Posting)
-            .options(joinedload(Posting.designation), joinedload(Posting.facility))
-            .where(Posting.employee_id.in_(ids), Posting.end_date.is_(None))
-        ).unique()
-        for posting in posting_rows:
-            postings[posting.employee_id] = posting
-        detail_rows = db.session.scalars(
-            select(EmploymentDetail)
-            .options(joinedload(EmploymentDetail.employment_type))
-            .where(EmploymentDetail.employee_id.in_(ids))
-        ).unique()
-        for detail in detail_rows:
-            employments[detail.employee_id] = detail
-    visible = [column for column in columns if column.key not in {"code", "status"}]
-    load_dropdown_options([field for field in register_fields() if field.field_type == "dropdown"])
-    items = [
-        DirectoryRow(employee, postings.get(employee.id), employments.get(employee.id), visible)
-        for employee in employees
-    ]
     filters = {}
     if query:
         filters["q"] = query
@@ -177,46 +126,166 @@ def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn]
     if args.get("filter_field") and args.get("filter_value"):
         filters["filter_field"] = str(args.get("filter_field"))[:40]
         filters["filter_value"] = str(args.get("filter_value"))[:100]
+    return criteria, filters, sort, direction, columns
+
+
+def employee_directory(args) -> tuple[Page, dict, str, str, list[RegisterColumn], int]:
+    criteria, filters, sort, direction, columns = directory_selection(args)
+    try:
+        page = int(args.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    page = max(page, 1)
+    incomplete = args.get("incomplete") == "1"
+    missing = incomplete_predicate("banner")
+    page_match = and_(*criteria) if criteria else true()
+    missing_match = missing if missing is not None else false()
+    total, incomplete_count = db.session.execute(
+        select(
+            func.coalesce(func.sum(case((page_match, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((missing_match, 1), else_=0)), 0),
+        ).select_from(Employee)
+    ).one()
+    total = int(total or 0)
+    remember_incomplete_count(int(incomplete_count or 0))
+    pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    page = min(page, pages)
+    employees = _load_employees(criteria, sort, direction, (page - 1) * PAGE_SIZE, PAGE_SIZE)
+    items = _directory_rows(employees, columns)
     return Page(items, page, pages, total), filters, sort, direction, columns, int(incomplete_count or 0)
 
 
+def matching_employees(args, limit: int):
+    """Load employees that match the register filters, up to limit + 1."""
+    criteria, _filters, sort, direction, _columns = directory_selection(args)
+    only = _uuid(args.get("employee_id"))
+    if only is not None:
+        criteria = [Employee.id == only]
+    return _load_employees(criteria, sort, direction, 0, limit + 1)
+
+
+def _load_employees(criteria, sort, direction, offset, limit):
+    ordering = _ordering(sort, direction)
+    statement = select(Employee).options(joinedload(Employee.facility)).order_by(ordering, Employee.id)
+    if criteria:
+        statement = statement.where(*criteria)
+    return db.session.scalars(statement.offset(offset).limit(limit)).unique().all()
+
+
+def _directory_rows(employees, columns):
+    postings = {}
+    employments = {}
+    ids = [employee.id for employee in employees]
+    if ids:
+        posting_rows = db.session.scalars(
+            select(Posting)
+            .options(joinedload(Posting.designation), joinedload(Posting.facility))
+            .where(Posting.employee_id.in_(ids), Posting.end_date.is_(None))
+        ).unique()
+        for posting in posting_rows:
+            postings[posting.employee_id] = posting
+        detail_rows = db.session.scalars(
+            select(EmploymentDetail)
+            .options(joinedload(EmploymentDetail.employment_type), joinedload(EmploymentDetail.department))
+            .where(EmploymentDetail.employee_id.in_(ids))
+        ).unique()
+        for detail in detail_rows:
+            employments[detail.employee_id] = detail
+    visible = [column for column in columns if column.key not in {"code", "status"}]
+    load_dropdown_options([field for field in register_fields() if field.field_type == "dropdown"])
+    return [
+        DirectoryRow(employee, postings.get(employee.id), employments.get(employee.id), visible)
+        for employee in employees
+    ]
+
+
 def dashboard_counts() -> dict:
-    total = db.session.scalar(select(func.count()).select_from(Employee)) or 0
-    active = db.session.scalar(select(func.count()).select_from(Employee).where(Employee.is_active.is_(True))) or 0
-    inactive = db.session.scalar(select(func.count()).select_from(Employee).where(Employee.is_active.is_(False))) or 0
+    assigned = select(Posting.employee_id).where(Posting.end_date.is_(None))
+    missing = incomplete_predicate("dashboard")
+    missing_match = missing if missing is not None else false()
+    total, active, inactive, unassigned, incomplete = db.session.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(case((Employee.is_active.is_(True), 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Employee.is_active.is_(False), 1), else_=0)), 0),
+            func.coalesce(
+                func.sum(case((and_(Employee.is_active.is_(True), Employee.id.not_in(assigned)), 1), else_=0)),
+                0,
+            ),
+            func.coalesce(func.sum(case((missing_match, 1), else_=0)), 0),
+        ).select_from(Employee)
+    ).one()
     by_designation = db.session.execute(
         select(Designation.name, func.count(Employee.id))
         .join(Posting, Posting.designation_id == Designation.id)
         .join(Employee, Employee.id == Posting.employee_id)
         .where(Posting.end_date.is_(None), Employee.is_active.is_(True))
         .group_by(Designation.name)
-        .order_by(Designation.name)
+        .order_by(func.count(Employee.id).desc(), Designation.name)
     ).all()
-    by_facility = db.session.execute(
+    by_posting_facility = db.session.execute(
         select(Facility.name, func.count(Employee.id))
         .join(Posting, Posting.facility_id == Facility.id)
         .join(Employee, Employee.id == Posting.employee_id)
         .where(Posting.end_date.is_(None), Employee.is_active.is_(True))
         .group_by(Facility.name)
-        .order_by(Facility.name)
+        .order_by(func.count(Employee.id).desc(), Facility.name)
     ).all()
-    assigned = select(Posting.employee_id).where(Posting.end_date.is_(None))
-    unassigned = (
-        db.session.scalar(
-            select(func.count())
-            .select_from(Employee)
-            .where(Employee.is_active.is_(True), Employee.id.not_in(assigned))
+    by_facility = db.session.execute(
+        select(func.coalesce(Facility.name, "No facility"), func.count(Employee.id))
+        .select_from(Employee)
+        .outerjoin(Facility, Facility.id == Employee.facility_id)
+        .group_by(Facility.name)
+        .order_by(func.count(Employee.id).desc(), Facility.name)
+    ).all()
+    by_gender = [
+        ({"female": "Female", "male": "Male", "other": "Other"}.get(gender, "Not recorded"), int(count))
+        for gender, count in db.session.execute(
+            select(Employee.gender, func.count()).group_by(Employee.gender).order_by(func.count().desc(), Employee.gender)
         )
-        or 0
-    )
+    ]
+    by_employment_type = db.session.execute(
+        select(EmploymentType.name, func.count(Employee.id))
+        .join(EmploymentDetail, EmploymentDetail.employment_type_id == EmploymentType.id)
+        .join(Employee, Employee.id == EmploymentDetail.employee_id)
+        .group_by(EmploymentType.name)
+        .order_by(func.count(Employee.id).desc(), EmploymentType.name)
+    ).all()
+    recent = db.session.scalars(
+        select(Employee)
+        .options(joinedload(Employee.facility))
+        .order_by(Employee.created_at.desc(), Employee.full_name)
+        .limit(8)
+    ).unique().all()
+    total = int(total or 0)
+    active = int(active or 0)
     return {
         "total": total,
         "active": active,
-        "inactive": inactive,
-        "by_designation": by_designation,
-        "by_facility": by_facility,
-        "unassigned": unassigned,
+        "inactive": int(inactive or 0),
+        "unassigned": int(unassigned or 0),
+        "incomplete": int(incomplete or 0),
+        "active_share": round(active * 100 / total) if total else 0,
+        "by_designation": _bars(by_designation),
+        "by_posting_facility": _bars(by_posting_facility),
+        "by_facility": _bars(by_facility),
+        "by_gender": _bars(by_gender),
+        "by_employment_type": _bars(by_employment_type),
+        "recent": recent,
     }
+
+
+def _bars(rows) -> list[dict]:
+    counts = [int(count) for _label, count in rows]
+    largest = max(counts, default=0)
+    bars = []
+    for label, count in rows:
+        count = int(count)
+        share = round(count * 100 / largest) if largest else 0
+        if count and share < 2:
+            share = 2
+        bars.append({"label": label, "count": count, "share": share})
+    return bars
 
 
 _SYSTEM_SORT = {"full_name": "name", "phone": "phone", "facility_id": "facility"}

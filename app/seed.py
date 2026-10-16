@@ -28,6 +28,11 @@ from app.models import Allegation, DacpDetail, EducationRecord, JobAppointment, 
 
 
 def register_commands(app) -> None:
+    from app.roster_import import register_roster_command
+    from app.workflow_data import register_workflow_commands
+
+    register_workflow_commands(app)
+    register_roster_command(app)
     @app.cli.command("seed-demo")
     def seed_demo():
         """Insert a small set of synthetic employee records."""

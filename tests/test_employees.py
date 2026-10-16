@@ -85,6 +85,18 @@ def test_employee_form_rejects_weak_name_and_phone(admin):
         )
         assert fake_response.status_code == 400
         assert "real mobile number" in fake_response.get_data(as_text=True)
+    leading_zero = admin.post(
+        "/employees/new",
+        data=payload(version="0", facility_id=str(facility.id), phone="0986712345", employee_code="EMP-FAKE"),
+    )
+    spaced = admin.post(
+        "/employees/new",
+        data=payload(version="0", facility_id=str(facility.id), phone="9867 123450", employee_code="EMP-FAKE"),
+    )
+    assert leading_zero.status_code == 400
+    assert "starting with 6, 7, 8, or 9" in leading_zero.get_data(as_text=True)
+    assert spaced.status_code == 400
+    assert "exactly 10 digits" in spaced.get_data(as_text=True)
     assert db.session.scalar(select(Employee).where(Employee.employee_code == "EMP-2001")) is None
 
 
@@ -352,7 +364,50 @@ def test_dashboard_uses_aggregates(admin):
     finally:
         event.remove(db.engine, "before_cursor_execute", capture)
     assert response.status_code == 200
-    assert b"Total employees" in response.data
+    body = response.get_data()
+    assert b"Total employees" in body
+    assert b"Employees by facility" in body
+    assert b"Northview PHC" in body
+    assert b"Gender" in body
+    assert b"Female" in body
+    assert b"Recently added" in body
+    assert b"Dash One" in body
     joined = "\n".join(statements).lower()
     assert "count(" in joined
     assert "group by" in joined
+
+
+def test_roster_name_without_birth_date_or_phone_can_be_opened(admin):
+    facility = _facility()
+    employee = Employee(
+        id=new_id(),
+        employee_code="EMP-ROSTER",
+        full_name="Dr. Example Roster",
+        date_of_birth=None,
+        gender=None,
+        phone=None,
+        facility_id=facility.id,
+        custom_data={},
+        is_active=True,
+        version=1,
+    )
+    db.session.add(employee)
+    db.session.commit()
+    page = admin.get(f"/employees/{employee.id}/personal")
+    assert page.status_code == 200
+    assert b"Dr. Example Roster" in page.data
+    rejected = admin.post(
+        f"/employees/{employee.id}/personal",
+        data=payload(
+            full_name="Dr. Example Roster",
+            date_of_birth="",
+            gender="",
+            phone="",
+            version="1",
+            facility_id=str(facility.id),
+        ),
+    )
+    assert rejected.status_code == 400
+    stored = db.session.get(Employee, employee.id)
+    assert stored.phone is None
+    assert stored.date_of_birth is None

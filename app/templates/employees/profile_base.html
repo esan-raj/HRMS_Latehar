@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-  <p class="mb-2"><a href="{{ url_for('employees.index') }}">Employees</a></p>
-  <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
+  <p class="crumb"><a href="{{ url_for('employees.index') }}">Employees</a></p>
+  <div class="identity">
     <div>
       <h1 class="page-title">{{ employee.full_name }}</h1>
-      <p class="mb-2">
-        <span class="me-2">{{ employee.employee_code }}</span>
+      <p class="identity-meta">
+        <span>{{ employee.employee_code }}</span>
         {% if employee.is_active %}
           <span class="badge text-bg-success">Active</span>
         {% else %}

@@ -17,12 +17,17 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        "employee_code_counters",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("last_value", sa.Integer(), nullable=False),
-        schema="hrms",
-    )
+    from sqlalchemy import inspect
+
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    if "employee_code_counters" not in set(inspector.get_table_names(schema="hrms")):
+        op.create_table(
+            "employee_code_counters",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("last_value", sa.Integer(), nullable=False),
+            schema="hrms",
+        )
     op.execute(
         """
         INSERT INTO hrms.employee_code_counters (id, last_value)

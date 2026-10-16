@@ -2,7 +2,14 @@
 {% from "macros.html" import render_field %}
 {% block title %}{{ spec.title }} · HR Records{% endblock %}
 {% block content %}
-  <h1 class="page-title">{{ spec.title }}</h1>
+  <div class="toolbar">
+    <h1 class="page-title mb-0">{{ spec.title }}</h1>
+    <div class="toolbar-actions">
+      <a class="btn btn-outline-secondary" href="{{ url_for('masters.bulk', slug=spec.slug) }}">Bulk upload</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('masters.export_xlsx', slug=spec.slug) }}">Download Excel</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('masters.export_pdf', slug=spec.slug) }}">Download PDF</a>
+    </div>
+  </div>
   <p class="muted">Inactive records remain visible on existing employee history and are hidden from new selections.</p>
   <div class="card">
     {% if rows %}
@@ -39,11 +46,11 @@
                 <td class="actions">
                   <a href="{{ url_for('masters.edit', slug=spec.slug, record_id=row.id) }}">Edit</a>
                   {% if row.is_active %}
-                    <a href="{{ url_for('masters.deactivate', slug=spec.slug, record_id=row.id) }}">Deactivate</a>
+                    <a class="action-danger" href="{{ url_for('masters.deactivate', slug=spec.slug, record_id=row.id) }}">Deactivate</a>
                   {% else %}
                     <a href="{{ url_for('masters.activate', slug=spec.slug, record_id=row.id) }}">Activate</a>
                   {% endif %}
-                  <a href="{{ url_for('masters.delete', slug=spec.slug, record_id=row.id) }}">Delete</a>
+                  <a class="action-danger" href="{{ url_for('masters.delete', slug=spec.slug, record_id=row.id) }}">Delete</a>
                 </td>
               </tr>
             {% endfor %}
@@ -56,6 +63,9 @@
   </div>
   <form class="card" method="post" style="max-width: 40rem;">
     <h2 class="h5">Add {{ spec.singular }}</h2>
+    {% if next_code %}
+      <p class="muted">Facility code <strong>{{ next_code }}</strong> is assigned when you save. It cannot be changed later.</p>
+    {% endif %}
     {{ form.hidden_tag() }}
     {% if form.errors %}<div class="alert alert-danger" role="alert">Please correct the highlighted fields.</div>{% endif %}
     {% for field in form if field.widget.input_type != 'hidden' %}

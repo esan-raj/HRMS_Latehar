@@ -466,7 +466,6 @@ class MasterNameForm(VersionedForm):
 
 class FacilityForm(VersionedForm):
     name = StringField("Name", filters=[strip], validators=[DataRequired(), Length(max=200)])
-    code = StringField("Code", filters=[strip_upper], validators=[DataRequired(), Length(max=32), valid_code])
     facility_type = StringField("Type", filters=[strip], validators=[DataRequired(), Length(max=80)])
     district = StringField("District", filters=[strip], validators=[DataRequired(), Length(max=120)])
     block = StringField("Block", filters=[empty_none], validators=[Optional(), Length(max=120)])
@@ -474,7 +473,6 @@ class FacilityForm(VersionedForm):
     def values(self) -> dict:
         return {
             "name": self.name.data,
-            "code": self.code.data,
             "facility_type": self.facility_type.data,
             "district": self.district.data,
             "block": self.block.data,
