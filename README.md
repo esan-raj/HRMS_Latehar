@@ -177,6 +177,10 @@ waitress-serve --listen=127.0.0.1:8000 wsgi:application
 
 Set `COOKIE_SECURE=1` and `TRUST_PROXY=1`. `GET /health` returns `{"status":"ok"}` or `503` with `{"status":"unavailable"}`. It does not return credentials, SQL errors, or HR data.
 
+## Documentation
+
+The [docs](docs/README.md) folder records every workflow, the reason for each important decision, the database schema, and a summary of each project file.
+
 ## Project layout
 
 - `wsgi.py` — production application object.
