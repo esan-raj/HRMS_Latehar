@@ -50,17 +50,18 @@ This list covers the project files. It skips `.venv`, caches, `.env`, `.env.test
 | `app/extensions.py` | `db` with metadata schema `hrms` and a naming convention, plus `migrate` and `csrf`. |
 | `app/database.py` | `ping_database` runs `SELECT 1` and rolls back. Used only by health. |
 | `app/models.py` | All ORM tables: masters, employees, history, custom fields, audit, both code counters, and login throttle. Also the case-insensitive name indexes and the one-open-posting index. |
-| `app/domain.py` | `FieldError`, `StaleFormError`, and `StaleEditError`, each with an HTTP status. |
+| `app/domain.py` | `FieldError`, `SelectionError`, `StaleFormError`, and `StaleEditError`, each with an HTTP status. |
 | `app/persistence.py` | New ids, locked reloads, versioned updates, and commit that turns an integrity error into a field error. |
 | `app/audit.py` | `utcnow`, a column snapshot, and `record_audit`. The snapshot is the before/after map stored on the audit row. |
-| `app/hr.py` | Employee and facility code allocation, create and update employee, activation, addresses, employment, posting overlap rules, generic child create/update/delete, and the "name already used" and "delete blocked" checks. |
+| `app/hr.py` | Employee and facility code allocation, create and update employee, activation, permanent employee deletion, addresses, employment, posting overlap rules, generic child create/update/delete, and the "name already used" and "delete blocked" checks. |
 | `app/forms.py` | WTForms for personal details, employment, history sections, masters, and field definitions. Phone, name, PIN, and birth-date validators live here. `FacilityForm` has no code field. |
 | `app/choices.py` | Active dropdown choices, with the current inactive selection still shown on an old row. Facility labels include the code. |
 | `app/fielddefs.py` | System fields, custom-field CRUD, catalog version, Aadhaar and typed parsers, incomplete-employee predicate, JSON extraction for sort and filter, option retire/delete, and the request-scoped field cache. |
 | `app/directory.py` | Register query, filters, allowlisted sort, pagination of 20, export selection, and dashboard aggregates. Facility bars use the employee facility. Posting bars use the open posting. |
-| `app/transfers.py` | Employee view facts, Excel and PDF bytes, the employee CSV template, and all-or-nothing employee import. Limits are 2,000 export rows and 200 import rows. |
+| `app/transfers.py` | Employee view facts, the Excel workbook and the older master PDF writer, the employee CSV template, and all-or-nothing employee import. Limits are 2,000 export rows and 200 import rows. |
 | `app/master_transfer.py` | The same download and CSV import for the four master lists. Facility codes are allocated at insert time. |
-| `app/employee_routes.py` | Register, create, view, personal edit, employment, activation, and the employee export and bulk routes. Profile `/employees/<id>` redirects to the view page. |
+| `app/sheet_pdf.py` | Draws a PDF table with the same columns and rows as an Excel download, using fpdf2 and the Hind font. |
+| `app/employee_routes.py` | Register, create, view, personal edit, employment, activation, permanent and bulk deletion, and the employee export and bulk routes. Profile `/employees/<id>` redirects to the view page. |
 | `app/record_routes.py` | Job appointments inside Employment, and the current-posting save. Collection specs for education, training, promotions, allegations, leave, and DACP are defined here. Only appointments are registered as routes. |
 | `app/master_routes.py` | The four master screens, their export and bulk routes, and activate, deactivate, and delete. Unknown slugs return 404. |
 | `app/field_routes.py` | Field list, create, edit, reorder, archive, restore, delete, and dropdown option routes. |
@@ -94,10 +95,11 @@ This list covers the project files. It skips `.venv`, caches, `.env`, `.env.test
 | `confirm.html` | Title, message, hidden version, confirm button, and cancel link. |
 | `auth/login.html` | Email, password, and the Latehar mark. The password is not echoed back. |
 | `dashboard/index.html` | Count cards, mix bar, five bar charts, and the recent-employee table. |
-| `employees/list.html` | Register header, filters, table, and pagination. Export links keep the current filters. |
+| `employees/list.html` | Register header, filters, row checkboxes, current-page delete, table, and pagination. Export links keep the current filters and say they include all filtered records. |
+| `employees/delete_selected.html` | Confirms the selected count and lists each code, name, and status before the deleting post. |
 | `employees/form.html` | Add-employee form. Shows the next code. |
-| `employees/profile_base.html` | Name, code, status, current-posting line, deactivate or reactivate, and the section tabs. |
-| `employees/view.html` | Read-only personal, custom, employment, and posting facts, plus edit and download buttons. |
+| `employees/profile_base.html` | Name, code, status, current-posting line, deactivate or reactivate, delete, and the section tabs. |
+| `employees/view.html` | Read-only personal, custom, employment, and posting facts, plus edit and download buttons. The downloads are labelled as this employee only. |
 | `employees/personal.html` | Personal form, system fields, and custom fields. |
 | `employees/employment.html` | Employment-details form and the job-appointment list and form. |
 | `employees/postings.html` | Current-posting form. The end date is not shown. |
@@ -121,7 +123,8 @@ This list covers the project files. It skips `.venv`, caches, `.env`, `.env.test
 | File | Contents |
 | --- | --- |
 | `app/static/css/app.css` | The records-desk layout: sidebar, cards, tables, filters, bars, badges, and the narrow-screen drawer. |
-| `app/static/js/app.js` | Sets the maximum birth date to today, and checks mobile numbers, Aadhaar length, digit fields, and names that must contain a letter before submit. Also copies a present address into the permanent address fields. |
+| `app/static/js/app.js` | Updates the current-page selection count, sets the maximum birth date to today, and checks mobile numbers, Aadhaar length, digit fields, and names that must contain a letter before submit. Also copies a present address into the permanent address fields. |
+| `app/static/fonts/Hind-Regular.ttf` | Bundled Hind font used by table PDFs. `OFL.txt` is its license notice. |
 | `app/static/favicon.svg` | Teal square with the letters HR. |
 
 ## `tests/`
@@ -135,5 +138,7 @@ This list covers the project files. It skips `.venv`, caches, `.env`, `.env.test
 | `tests/test_fields.py` | Custom field types, archive and delete, Aadhaar length, catalog version, and audit contents. |
 | `tests/test_field_cache.py` | A field changed in another request is not served from the stale request cache. |
 | `tests/test_transfers.py` | Read-only view, Excel and PDF contents, filtered export, CSV template, sample-row rejection, and a failed row inserting nobody. |
+| `tests/test_employee_delete.py` | Individual and bulk deletion, master preservation, stale and invalid ids, rollback, audit contents, sign-in, and CSRF. |
+| `tests/test_sheet_pdf.py` | The download PDF keeps Excel's columns in one table, including Unicode, and repeats the header on the next page. |
 | `tests/test_master_transfer.py` | Bulk and download links for the four masters, facility codes assigned in order, and a posted code ignored on edit. |
 | `tests/test_workflow_seed.py` | The isolated-database guard, the OPD workbook shape, and the migration lockdown using plain table names. |

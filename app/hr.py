@@ -1,3 +1,4 @@
+import uuid
 import re
 from datetime import date
 
@@ -5,12 +6,15 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.audit import column_snapshot, record_audit
-from app.domain import FieldError, StaleEditError
+from app.domain import FieldError, SelectionError, StaleEditError
 from app.extensions import db
 from app.models import (
     Address,
+    Allegation,
+    DacpDetail,
     Department,
     Designation,
+    EducationRecord,
     Employee,
     EmployeeCodeCounter,
     EmploymentDetail,
@@ -18,8 +22,10 @@ from app.models import (
     Facility,
     FacilityCodeCounter,
     JobAppointment,
+    LeaveRecord,
     Posting,
     Promotion,
+    TrainingRecord,
 )
 from app.persistence import apply_versioned_update, commit_or_conflict, new_id, reload_locked
 
@@ -381,6 +387,132 @@ def update_child(actor_id, employee_id, model, record_id, entity_type: str, fiel
     record_audit(actor_id, entity_type, row.id, "update", before, after)
     commit_or_conflict("form")
     return row, True
+
+
+RELATED_EMPLOYEE_MODELS = (
+    Address,
+    EducationRecord,
+    TrainingRecord,
+    JobAppointment,
+    EmploymentDetail,
+    Posting,
+    Promotion,
+    Allegation,
+    LeaveRecord,
+    DacpDetail,
+)
+
+
+def delete_employee(actor_id, employee_id, submitted_version: int) -> str:
+    """Permanently delete one employee and that employee's own history.
+
+    Shared master rows are left in place. The audit row records the employee
+    code and status, not the personal fields.
+    """
+    employee = reload_locked(Employee, employee_id)
+    if employee.version != submitted_version:
+        db.session.rollback()
+        raise StaleEditError()
+    code = employee.employee_code
+    _delete_employee_graph(actor_id, employee)
+    _commit_delete("This employee could not be deleted. Nothing was removed.")
+    return code
+
+
+def preview_deletion(selected: list[tuple[str, str]]) -> list[dict]:
+    """Check a bulk selection and return identifiers without deleting anyone."""
+    found, parsed = _locked_selection(selected)
+    preview = [
+        {
+            "id": str(found[employee_id].id),
+            "code": found[employee_id].employee_code,
+            "name": found[employee_id].full_name,
+            "version": found[employee_id].version,
+            "active": found[employee_id].is_active,
+        }
+        for employee_id, _version in parsed
+    ]
+    db.session.rollback()
+    return preview
+
+
+def delete_employees(actor_id, selected: list[tuple[str, str]]) -> list[str]:
+    """Delete one page of employees, or delete none of them.
+
+    ``selected`` is ``(employee id, version)`` pairs from the register.
+    """
+    found, parsed = _locked_selection(selected)
+    codes = []
+    for employee_id, _version in parsed:
+        employee = found[employee_id]
+        codes.append(employee.employee_code)
+        _delete_employee_graph(actor_id, employee)
+    _commit_delete("The selected employees could not be deleted. Nothing was removed.")
+    return codes
+
+
+def _locked_selection(selected: list[tuple[str, str]]):
+    from app.directory import PAGE_SIZE
+
+    if not selected:
+        raise SelectionError("Select at least one employee. Nothing was deleted.")
+    if len(selected) > PAGE_SIZE:
+        raise SelectionError("Select only the employees on the current page. Nothing was deleted.")
+    parsed = []
+    seen = set()
+    for raw_id, raw_version in selected:
+        try:
+            employee_id = uuid.UUID(str(raw_id))
+            version = int(raw_version)
+        except (TypeError, ValueError):
+            raise SelectionError("A selected employee is not valid. Refresh the register and choose again. Nothing was deleted.") from None
+        if employee_id in seen:
+            raise SelectionError("The same employee was submitted more than once. Nothing was deleted.")
+        seen.add(employee_id)
+        parsed.append((employee_id, version))
+    statement = select(Employee).where(Employee.id.in_([item[0] for item in parsed])).order_by(Employee.id)
+    if db.engine.dialect.name == "postgresql":
+        statement = statement.with_for_update()
+    found = {row.id: row for row in db.session.scalars(statement).all()}
+    if len(found) != len(parsed):
+        db.session.rollback()
+        raise SelectionError("A selected employee no longer exists. Refresh the register and choose again. Nothing was deleted.")
+    for employee_id, version in parsed:
+        if found[employee_id].version != version:
+            db.session.rollback()
+            raise SelectionError("A selected employee changed. Refresh the register and choose again. Nothing was deleted.")
+    return found, parsed
+
+
+def _delete_employee_graph(actor_id, employee: Employee) -> None:
+    related = 0
+    for model in RELATED_EMPLOYEE_MODELS:
+        rows = db.session.scalars(select(model).where(model.employee_id == employee.id)).all()
+        related += len(rows)
+        for row in rows:
+            db.session.delete(row)
+    db.session.flush()
+    record_audit(
+        actor_id,
+        "employee",
+        employee.id,
+        "delete",
+        {
+            "employee_code": employee.employee_code,
+            "status": "active" if employee.is_active else "inactive",
+            "related_records": related,
+        },
+        {},
+    )
+    db.session.delete(employee)
+
+
+def _commit_delete(message: str) -> None:
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise FieldError("form", message) from None
 
 
 def delete_child(actor_id, employee_id, model, record_id, entity_type: str, fields: tuple[str, ...], submitted_version: int):

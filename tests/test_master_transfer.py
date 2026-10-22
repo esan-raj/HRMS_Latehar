@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 
 from app.extensions import db
 from app.models import Department, Facility
+from tests.test_transfers import _pdf_text
+from tests.test_transfers import _pdf_text
 
 
 def test_each_master_list_offers_bulk_download_and_upload(admin):
@@ -31,7 +33,7 @@ def test_department_download_and_csv_upload(admin):
     assert "Accounts" in values
     pdf = admin.get("/masters/departments/export/pdf")
     assert pdf.data.startswith(b"%PDF-")
-    assert b"Accounts" in pdf.data
+    assert "Accounts" in _pdf_text(pdf.data)
     template = admin.get("/masters/departments/bulk/template").data.decode("utf-8-sig")
     header = next(csv.reader(io.StringIO(template)))
     payload = _csv([header, ["Ward office", "active"]])

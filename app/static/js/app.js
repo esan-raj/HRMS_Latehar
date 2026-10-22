@@ -1,4 +1,29 @@
 document.addEventListener("DOMContentLoaded", function () {
+  var form = document.getElementById("delete-selected");
+  if (form) {
+    var pageBox = document.getElementById("select-page");
+    var button = document.getElementById("delete-selected-button");
+    var count = document.getElementById("selected-count");
+    var rows = function () { return Array.prototype.slice.call(form.querySelectorAll(".row-select")); };
+    var refresh = function () {
+      var boxes = rows();
+      var chosen = boxes.filter(function (box) { return box.checked; }).length;
+      if (count) count.textContent = chosen + " selected";
+      if (button) button.disabled = chosen === 0;
+      if (pageBox) pageBox.checked = boxes.length > 0 && chosen === boxes.length;
+    };
+    if (pageBox) {
+      pageBox.addEventListener("change", function () {
+        rows().forEach(function (box) { box.checked = pageBox.checked; });
+        refresh();
+      });
+    }
+    form.addEventListener("change", function (event) {
+      if (event.target && event.target.classList && event.target.classList.contains("row-select")) refresh();
+    });
+    refresh();
+  }
+
   var today = new Date().toISOString().slice(0, 10);
   document.querySelectorAll('input[type="date"][name="date_of_birth"]').forEach(function (input) {
     input.max = today;

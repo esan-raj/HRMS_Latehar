@@ -16,7 +16,8 @@ from app.hr import (
     referenced_labels,
 )
 from app.master_transfer import import_masters, master_table, template_columns, template_csv
-from app.transfers import BulkFileError, pdf_bytes, workbook_bytes
+from app.sheet_pdf import table_pdf
+from app.transfers import EXPORT_LIMIT, BulkFileError, workbook_bytes
 from app.persistence import apply_versioned_update, commit_or_conflict, new_id, reload_locked
 
 bp = Blueprint("masters", __name__, url_prefix="/masters")
@@ -81,7 +82,8 @@ def export_xlsx(slug):
 def export_pdf(slug):
     spec = _spec(slug)
     headers, rows, truncated = master_table(spec)
-    payload = pdf_bytes(headers, rows, truncated, spec["title"].lower())
+    note = f"This file contains the first {EXPORT_LIMIT} matching rows." if truncated else ""
+    payload = table_pdf(headers, rows, spec["title"], note)
     return _download(payload, f"{slug}.pdf", "application/pdf")
 
 

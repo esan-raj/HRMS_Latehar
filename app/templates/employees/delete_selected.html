@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Delete selected employees · HR Records{% endblock %}
+{% block content %}
+  <div class="card" style="max-width: 40rem;">
+    <h1 class="page-title">Delete {{ employees|length }} employees</h1>
+    <p>This permanently deletes the employees below and their related HR records. Shared master records such as facilities and designations are kept. This cannot be undone.</p>
+    <p class="muted">Only the employees selected on the current register page are included.</p>
+    <ul>
+      {% for employee in employees %}
+        <li>{{ employee.code }} · {{ employee.name }} · {{ "Active" if employee.active else "Inactive" }}</li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="{{ url_for('employees.delete_selected') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="confirm" value="yes">
+      {% for employee_id, version in selected %}
+        <input type="hidden" name="selected" value="{{ employee_id }}">
+        <input type="hidden" name="version_{{ employee_id }}" value="{{ version }}">
+      {% endfor %}
+      {% for key, value in return_args.items() %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endfor %}
+      <button class="btn btn-danger" type="submit">Delete selected</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.index', **return_args) }}">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

@@ -25,7 +25,12 @@ def test_view_page_is_read_only_and_downloads_one_employee(admin):
     pdf = admin.get(f"/employees/export/pdf?employee_id={employee.id}")
     assert pdf.status_code == 200
     assert pdf.data.startswith(b"%PDF-")
-    assert b"Viewable Person" in pdf.data
+    text = _pdf_text(pdf.data)
+    assert "Viewable Person" in text
+    assert "one employee" in text
+    assert "Column group" not in text
+    for header in next(sheet.iter_rows(max_row=1, values_only=True)):
+        assert header in text
 
 
 def test_register_download_follows_the_name_filter(admin):
@@ -39,6 +44,12 @@ def test_register_download_follows_the_name_filter(admin):
     listing = admin.get("/employees/?q=Kept")
     assert b"/view" in listing.data
     assert b"Bulk upload" in listing.data
+    assert "all filtered records" in listing.get_data(as_text=True)
+    pdf = admin.get("/employees/export/pdf?q=Kept")
+    text = _pdf_text(pdf.data)
+    assert "Kept Person" in text
+    assert "Other Person" not in text
+    assert "all filtered records" in text
 
 
 def test_sample_csv_is_ignored_and_a_valid_row_is_added(admin):
@@ -88,6 +99,13 @@ def test_downloads_require_sign_in(client):
     assert client.get("/employees/export/excel").status_code == 302
     assert client.get("/employees/export/pdf").status_code == 302
     assert client.get("/employees/bulk").status_code == 302
+
+
+def _pdf_text(payload: bytes) -> str:
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(payload))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
 def _csv(rows) -> bytes:

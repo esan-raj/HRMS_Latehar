@@ -1,0 +1,5 @@
+Hind
+Copyright 2014 The Hind Project Authors (https://github.com/itfoundry/hind)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license text is published at https://openfontlicense.org

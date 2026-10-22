@@ -37,7 +37,7 @@ There is no public registration, employee login, payroll, attendance, transfer a
 - The employee facility is stored on the employee. Posting history keeps its own facility. The first migration copies the open posting's facility onto an employee only when that employee does not already have one.
 - The current posting is the open posting. Older posting rows are not edited from the profile.
 - Inactive master records stay visible on old rows and are omitted from dropdowns for new selections.
-- Employee removal is deactivation. There is no permanent delete.
+- Deactivation hides an employee and keeps the history. Delete permanently removes that employee and their related HR records. Shared masters such as facilities and designations stay. The register can also delete the employees selected on the current page.
 - Optimistic locking uses a hidden `version` field. A stale save returns the latest stored values and does not overwrite them.
 
 ## Employee fields

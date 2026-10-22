@@ -541,6 +541,14 @@ code {
 
 .alert-info { background: #e8f3f8; color: #0d4a66; }
 
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+
 .pager {
   display: flex;
   justify-content: space-between;

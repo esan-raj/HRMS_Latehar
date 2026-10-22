@@ -6,10 +6,11 @@
     <div class="toolbar-actions">
       <a class="btn btn-outline-secondary" href="{{ url_for('employees.bulk') }}">Bulk upload</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('employees.export_xlsx', sort=sort, dir=direction, **filters) }}">Download Excel</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('employees.export_pdf', sort=sort, dir=direction, **filters) }}">Download PDF</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('employees.export_pdf', sort=sort, dir=direction, **filters) }}">Export PDF</a>
       <a class="btn btn-primary" href="{{ url_for('employees.create') }}">Add employee</a>
     </div>
   </div>
+  <p class="muted">Excel and PDF include all filtered records, not only this page.</p>
   <form class="card filter-card" method="get" action="{{ url_for('employees.index') }}">
     <div class="filter-grid">
       <div>
@@ -72,14 +73,29 @@
       <p class="mb-0 mt-2"><a href="{{ url_for('employees.index', incomplete=1) }}">{{ incomplete_count }} employees are missing a required value</a></p>
     {% endif %}
   </form>
-  <div class="card">
+  <form id="delete-selected" class="card" method="post" action="{{ url_for('employees.delete_selected') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ direction }}">
+    <input type="hidden" name="page" value="{{ page.page }}">
+    {% for key, value in filters.items() %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {% endfor %}
     {% if page.total == 0 %}
       <p class="mb-0">No employees match these filters.</p>
     {% else %}
+      <div class="selection-bar">
+        <span id="selected-count">0 selected</span>
+        <button class="btn btn-outline-danger btn-sm" id="delete-selected-button" type="submit" disabled>Delete selected</button>
+        <span class="muted">Select all applies only to this page. Filtering, sorting, or another page clears the selection.</span>
+      </div>
       <div class="table-wrap">
         <table class="table table-sm align-middle">
           <thead>
             <tr>
+              <th scope="col">
+                <input id="select-page" type="checkbox" aria-label="Select all employees on this page">
+              </th>
               {% for column in columns %}
                 <th scope="col" {% if sort == column.key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
                   {% if column.sortable %}
@@ -95,6 +111,10 @@
           <tbody>
             {% for row in page.items %}
               <tr>
+                <td>
+                  <input class="row-select" type="checkbox" name="selected" value="{{ row.employee.id }}" aria-label="Select {{ row.employee.employee_code }}">
+                  <input type="hidden" name="version_{{ row.employee.id }}" value="{{ row.employee.version }}">
+                </td>
                 {% for column in columns %}
                   <td>
                     {% if column.key == 'code' %}
@@ -114,6 +134,7 @@
                   {% else %}
                     <a href="{{ url_for('employees.reactivate', employee_id=row.employee.id) }}">Reactivate</a>
                   {% endif %}
+                  <a class="action-danger" href="{{ url_for('employees.delete', employee_id=row.employee.id) }}">Delete</a>
                 </td>
               </tr>
             {% endfor %}
@@ -132,5 +153,5 @@
         </div>
       </nav>
     {% endif %}
-  </div>
+  </form>
 {% endblock %}

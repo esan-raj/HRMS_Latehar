@@ -63,7 +63,7 @@ Each row offers View, Edit, and Deactivate or Reactivate.
 
 `GET /employees/<id>` redirects to `GET /employees/<id>/view`.
 
-The view page is read-only. It shows personal facts, additional fields, employment, and the current posting. Buttons open Edit, Excel, and PDF for that one employee. There is no save button.
+The view page is read-only. It shows personal facts, additional fields, employment, and the current posting. Buttons open Edit, Excel, and PDF for that one employee. The page says the files contain this employee only. There is no save button. Delete is a separate confirmation.
 
 ## Edit personal details
 
@@ -98,7 +98,19 @@ Older posting rows stay in the table. The profile does not offer a screen to edi
 
 ## Deactivate and reactivate an employee
 
-`GET` shows a confirmation page. `POST` changes `is_active` and writes an audit row. The employee is not deleted. History rows remain. If the employee is already in the requested state, the flash says so and nothing is written.
+`GET` shows a confirmation page. `POST` changes `is_active` and writes an audit row. History rows remain. If the employee is already in the requested state, the flash says so and nothing is written. Deactivation is not deletion.
+
+## Delete one employee
+
+`GET /employees/<id>/delete` shows the name, code, whether the employee is active or inactive, and states that related HR records will be deleted and shared masters will be kept. `POST` performs the delete. `GET` does not.
+
+Active and inactive employees can both be deleted. The related rows listed under employee deletion in the decision record are removed, then the employee, then one audit row, in one commit. A stale version or a database failure leaves the employee and the history in place.
+
+## Delete the employees selected on this page
+
+The register has a checkbox on each row and a checkbox that selects every row on the current page. The page says that select-all applies only to this page. Changing the filter, sort, or page loads a new page, so the ticks are cleared. The Delete selected button stays disabled until at least one row is ticked.
+
+The first `POST /employees/delete-selected` only shows the count and the code, name, and status of each selected employee. A second post with `confirm=yes` deletes them. The return keeps the current register filters. The server checks every id and version. An empty selection, a duplicate, a value that is not an id, a missing employee, a stale version, or more than one page of ids deletes nobody. The batch and its audit rows commit together or not at all. There is no control that deletes every employee matching the filter.
 
 ## Download employees
 
@@ -109,7 +121,7 @@ Both use the same filters as the register. `employee_id` limits the file to one 
 
 Columns are employee code, name, date of birth, gender, mobile number, email, facility, designation, employment type, status, then every active custom field, including fields hidden from the register. A hidden Aadhaar column is included because the administrator asked to download the data. Empty custom display "—" is written as a blank cell.
 
-Excel keeps Unicode. A cell that starts with `=`, `+`, `-`, or `@` is forced to text. PDF is a small PDF 1.4 file in Helvetica. Characters outside Latin-1 become `?`.
+Excel keeps Unicode. A cell that starts with `=`, `+`, `-`, or `@` is forced to text. The PDF is one table with those same headers, in that order, and the same data rows. It does not rearrange the columns. The header row is repeated when the table continues onto another page. A wider table uses a landscape page. Its note says whether it contains one employee or all filtered records. A filtered result longer than 2,000 rows is marked as the first 2,000. The Excel download itself is unchanged.
 
 ## Bulk add employees
 

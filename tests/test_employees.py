@@ -128,7 +128,8 @@ def test_employee_crud_deactivation_and_phone_string(admin):
     employee = db.session.get(Employee, employee.id)
     assert employee.is_active is True
     missing = admin.post(f"/employees/{employee.id}/delete")
-    assert missing.status_code == 404
+    assert missing.status_code == 400
+    assert db.session.get(Employee, employee.id) is not None
 
 
 def test_generated_code_does_not_read_every_employee_code(admin, app):

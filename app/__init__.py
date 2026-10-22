@@ -101,7 +101,7 @@ def _normalize_config(app) -> None:
     app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
     app.config.setdefault("SESSION_COOKIE_NAME", "hrms_session")
     app.config["WTF_CSRF_SSL_STRICT"] = secure
-    app.config.setdefault("MAX_CONTENT_LENGTH", 1_000_000)
+    app.config["MAX_CONTENT_LENGTH"] = max(int(app.config.get("MAX_CONTENT_LENGTH") or 0), 1_000_000)
 
 
 def _register_errors(app) -> None:

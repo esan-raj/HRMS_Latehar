@@ -114,11 +114,17 @@ A partial unique index allows only one `postings` row per employee with `end_dat
 
 A boolean "current" flag can drift out of date. The null end date is the current posting. Inclusive dates and the overlap check stop two periods from covering the same day.
 
-## Deactivate employees; delete masters only when nothing points at them
+## Deactivate or permanently delete an employee; delete masters only when nothing points at them
 
-Employees are deactivated. There is no employee delete. Master rows can be deleted when no foreign key still references them. Inactive masters remain visible on old rows and are omitted from new dropdowns.
+Deactivation and reactivation stay available. They change `is_active` and keep every history row.
 
-Deleting an employee would either fail on history or destroy service history. Deactivation keeps the audit trail. A master that is still cited cannot disappear without leaving a broken designation or facility name.
+Permanent delete is a separate confirmation. It is allowed for an active or an inactive employee. The employee’s own addresses, education, training, appointments, employment, postings, promotions, allegations, leave, and DACP rows are removed in the same transaction, then the employee row. Shared masters are not removed. Child foreign keys are `ON DELETE RESTRICT`, so the children are deleted explicitly before the employee. A failure rolls the whole change back.
+
+The audit row keeps the employee code, active or inactive status, the count of related rows, the actor, and the timestamp. It does not copy the name, phone, date of birth, or custom values. Older audit rows are left as they are.
+
+The register can delete only the employees ticked on the current page. Select-all is not stored, and there is no action that deletes every employee matching a filter. More than one page of ids, a duplicate, a bad id, or a stale version deletes nobody.
+
+Master rows can still be deleted only when no foreign key references them. Inactive masters remain visible on old rows and are omitted from new dropdowns.
 
 ## Optimistic locking
 
@@ -138,11 +144,11 @@ Employee and master CSV imports validate every data row, then insert in one comm
 
 A partial import is hard to retry safely because codes would already have been consumed and some names would exist. Failing the file leaves the database unchanged. The sample row lets the template be uploaded unchanged without creating "Dr. Sample Name".
 
-## CSV for upload, Excel and PDF for download
+## CSV for upload, Excel and a matching table PDF for download
 
-Uploads accept only the prescribed CSV. Excel is produced with openpyxl. PDF is a small pure-Python PDF 1.4 writer using Helvetica.
+Employee and master uploads still accept only the prescribed CSV. Excel is produced with openpyxl. The PDF download uses the same headers, column order, and rows as that Excel sheet, drawn as one bordered table with the bundled Hind font so Hindi text can be included. There is no separate page for uploading a workbook and converting it.
 
-An Excel upload would accept a second, harder-to-check shape. A PDF library that needed Pillow failed to install when the package index timed out, so PDF does not depend on it. Helvetica cannot encode every Unicode character, so those characters become `?` in the PDF while Excel keeps them. Forcing formula-leading cells to text stops a downloaded name from being executed as a formula when the file is reopened.
+A wide table uses a landscape page and keeps every column in the row. The header repeats when the rows continue onto the next page. The type size is not reduced to squeeze every row onto one page. The register says the employee files contain all filtered records, and a profile download says it contains that employee only.
 
 ## The OPD roster is imported, not typed, and identity fields are left blank
 

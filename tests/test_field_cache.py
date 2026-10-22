@@ -91,7 +91,8 @@ def test_register_counts_incomplete_rows_without_loading_ids(admin):
         assert _incomplete_id_selects(statements) == [], path
     _response, statements = _capture(admin, "/")
     assert _incomplete_id_selects(statements) == []
-    assert _table_selects(statements, "employee_fields") == []
+    assert len(_table_selects(statements, "employee_fields")) == 1
+    assert _table_selects(statements, "employee_field_options") == []
 
 
 def test_next_request_sees_field_configuration_changes(admin):

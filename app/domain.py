@@ -19,6 +19,11 @@ class StaleFormError(DomainError):
         )
 
 
+class SelectionError(DomainError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, 400)
+
+
 class StaleEditError(DomainError):
     def __init__(self) -> None:
         super().__init__(

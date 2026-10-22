@@ -26,6 +26,7 @@
       {% else %}
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('employees.reactivate', employee_id=employee.id) }}">Reactivate</a>
       {% endif %}
+      <a class="btn btn-danger btn-sm" href="{{ url_for('employees.delete', employee_id=employee.id) }}">Delete</a>
     </div>
   </div>
   <nav class="section-nav" aria-label="Employee sections">

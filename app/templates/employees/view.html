@@ -4,8 +4,9 @@
   <div class="actions mb-3">
     <a class="btn btn-primary btn-sm" href="{{ url_for('employees.personal', employee_id=employee.id) }}">Edit</a>
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('employees.export_xlsx', employee_id=employee.id) }}">Download Excel</a>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('employees.export_pdf', employee_id=employee.id) }}">Download PDF</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('employees.export_pdf', employee_id=employee.id) }}">Export PDF</a>
   </div>
+  <p class="muted">Excel and PDF contain this employee only.</p>
   <div class="card">
     <h2 class="h5">Personal details</h2>
     <dl class="row mb-0">

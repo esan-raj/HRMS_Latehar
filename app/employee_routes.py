@@ -1,11 +1,12 @@
 import io
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, url_for
+from werkzeug.exceptions import HTTPException
 from sqlalchemy import select
 
 from app.choices import active_choices, facility_label, register_filter_choices
 from app.directory import employee_directory
-from app.domain import FieldError, StaleEditError, StaleFormError
+from app.domain import FieldError, SelectionError, StaleEditError, StaleFormError
 from app.extensions import db
 from app.fielddefs import (
     active_custom_fields,
@@ -16,13 +17,23 @@ from app.fielddefs import (
     parse_custom_values,
 )
 from app.forms import GENDERS, EmploymentForm, PersonalForm
-from app.hr import create_employee, next_employee_code, save_employment, set_employee_active, update_employee
+from app.hr import (
+    create_employee,
+    delete_employee,
+    delete_employees,
+    next_employee_code,
+    preview_deletion,
+    save_employment,
+    set_employee_active,
+    update_employee,
+)
 from app.models import Department, EmploymentDetail, EmploymentType, Facility
+from app.sheet_pdf import table_pdf
 from app.transfers import (
+    EXPORT_LIMIT,
     BulkFileError,
     export_table,
     import_employees,
-    pdf_bytes,
     record_facts,
     template_columns,
     template_csv,
@@ -58,6 +69,51 @@ def index():
         facilities=facilities,
         employment_types=employment_types,
     )
+
+
+REGISTER_FIELDS = (
+    "q",
+    "status",
+    "designation_id",
+    "facility_id",
+    "employment_type_id",
+    "filter_field",
+    "filter_value",
+    "incomplete",
+    "sort",
+    "dir",
+    "page",
+)
+
+
+@bp.route("/delete-selected", methods=["POST"])
+def delete_selected():
+    selected = _selected_employees()
+    return_args = _register_return_args()
+    try:
+        if request.form.get("confirm") != "yes":
+            preview = preview_deletion(selected)
+            return render_template(
+                "employees/delete_selected.html",
+                employees=preview,
+                selected=selected,
+                return_args=return_args,
+            )
+        codes = delete_employees(g.actor_id, selected)
+    except SelectionError as exc:
+        flash(exc.message, "warning")
+        return redirect(url_for("employees.index", **return_args))
+    except FieldError as exc:
+        flash(exc.message, "danger")
+        return redirect(url_for("employees.index", **return_args))
+    except HTTPException:
+        raise
+    except Exception:
+        db.session.rollback()
+        flash("The selected employees could not be deleted. Nothing was removed.", "danger")
+        return redirect(url_for("employees.index", **return_args))
+    flash(f"Deleted {len(codes)} employees: {', '.join(codes)}.", "success")
+    return redirect(url_for("employees.index", **return_args))
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -120,7 +176,13 @@ def export_xlsx():
 @bp.route("/export/pdf")
 def export_pdf():
     headers, rows, truncated = export_table(request.args)
-    payload = pdf_bytes(headers, rows, truncated)
+    if request.args.get("employee_id"):
+        note = "This PDF contains one employee."
+    elif truncated:
+        note = f"This PDF contains the first {EXPORT_LIMIT} filtered records, not only the current page."
+    else:
+        note = "This PDF contains all filtered records, not only the current page."
+    payload = table_pdf(headers, rows, "Employees", note)
     return _download(payload, "employees.pdf", "application/pdf")
 
 
@@ -226,6 +288,46 @@ def employment(employee_id):
     return _render_employment(employee, form, status)
 
 
+@bp.route("/<uuid:employee_id>/delete", methods=["GET", "POST"])
+def delete(employee_id):
+    employee = get_employee(employee_id)
+    if request.method == "GET":
+        state = "active" if employee.is_active else "inactive"
+        return render_template(
+            "confirm.html",
+            title="Delete employee",
+            message=(
+                f"Delete {employee.full_name} ({employee.employee_code}), who is {state}? "
+                "This permanently deletes this employee and their related HR records, including employment, "
+                "postings, appointments, and other history. Shared master records such as facilities and "
+                "designations are kept. This cannot be undone."
+            ),
+            action=url_for("employees.delete", employee_id=employee.id),
+            confirm_label="Delete employee",
+            cancel_url=url_for("employees.view_record", employee_id=employee.id),
+            version=employee.version,
+        )
+    version = request.form.get("version", type=int)
+    if version is None:
+        abort(400)
+    try:
+        code = delete_employee(g.actor_id, employee.id, version)
+    except StaleEditError as exc:
+        flash(exc.message, "warning")
+        return redirect(url_for("employees.view_record", employee_id=employee.id))
+    except FieldError as exc:
+        flash(exc.message, "danger")
+        return redirect(url_for("employees.view_record", employee_id=employee.id))
+    except HTTPException:
+        raise
+    except Exception:
+        db.session.rollback()
+        flash("This employee could not be deleted. Nothing was removed.", "danger")
+        return redirect(url_for("employees.view_record", employee_id=employee.id))
+    flash(f"Employee {code} and their related HR records were deleted.", "success")
+    return redirect(url_for("employees.index"))
+
+
 @bp.route("/<uuid:employee_id>/deactivate", methods=["GET", "POST"])
 def deactivate(employee_id):
     return _set_active(employee_id, False)
@@ -262,6 +364,20 @@ def _set_active(employee_id, active: bool):
     else:
         flash(f"Employee is already {action.lower()}d.", "info")
     return redirect(url_for("employees.personal", employee_id=employee.id))
+
+
+def _selected_employees() -> list[tuple[str, str]]:
+    chosen = request.form.getlist("selected")
+    return [(item, request.form.get(f"version_{item}", "")) for item in chosen]
+
+
+def _register_return_args() -> dict:
+    args = {}
+    for key in REGISTER_FIELDS:
+        value = (request.form.get(key) or "").strip()
+        if value:
+            args[key] = value[:100]
+    return args
 
 
 def _download(payload: bytes, filename: str, mimetype: str):
